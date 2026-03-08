@@ -98,7 +98,7 @@ Open [http://localhost:8501](http://localhost:8501)
 
 ---
 
-## 🐳 Docker
+## Docker
 
 ### Build & Run Locally
 ```bash
