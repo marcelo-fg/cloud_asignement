@@ -18,11 +18,24 @@ def render(database, query_b, tmdb_api):
         
     # No navigation bar on the movie page as per user request
     
-    # Render back button in main DOM
-    st.markdown("""
+    # Render dynamic back button
+    from_page = st.query_params.get("from", "home")
+    artist_id_ref = st.query_params.get("artist_id", "")
+    
+    if from_page == "search":
+        back_label = "Retour à la recherche"
+        back_url = "/?page=search"
+    elif from_page == "people" and artist_id_ref:
+        back_label = "Retour à l'artiste"
+        back_url = f"/?page=people&artist_id={artist_id_ref}"
+    else:
+        back_label = "Retour à l'accueil"
+        back_url = "/?page=home"
+
+    st.markdown(f"""
         <div style="padding: 15px 0 5px 0;">
-            <a href="/?page=home" target="_parent" style="color:#fff; text-decoration:none; display:inline-flex; align-items:center; gap:8px; font-size:1.1rem; font-weight:600; padding:10px 20px; background:rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius:8px; transition:all 0.2s;">
-                &#10094; Retour à l'accueil
+            <a href="{back_url}" target="_parent" style="color:#fff; text-decoration:none; display:inline-flex; align-items:center; gap:8px; font-size:1.1rem; font-weight:600; padding:10px 20px; background:rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius:8px; transition:all 0.2s;">
+                &#10094; {back_label}
             </a>
         </div>
     """, unsafe_allow_html=True)

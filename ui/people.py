@@ -1,5 +1,5 @@
 import streamlit as st
-from ui import styles
+from ui import styles, components
 import pandas as pd
 
 def render(db, qb, tmdb):
@@ -104,7 +104,7 @@ def _render_profile(artist_id_str, db, qb, tmdb):
         avg_r = float(row.get("avg_rating", 0)) if "avg_rating" in row else 0.0
         r_percent = int((avg_r / 5.0) * 100)
         
-        tmdb_data = tmdb.fetch_movie_popularity_v2(row.get("tmdbId"))
+        tmdb_data = tmdb.fetch_movie_popularity(row.get("tmdbId"))
         poster = tmdb_data.get("poster_url") if tmdb_data else None
         if not poster:
             safe_title = str(row["title"]).replace(" ", "+")
@@ -128,27 +128,18 @@ def _render_profile(artist_id_str, db, qb, tmdb):
         rating_color = "#21d07a" if r_percent >= 70 else "#d2d531" if r_percent >= 40 else "#db2360"
         conic = f"conic-gradient({rating_color} {r_percent}%, transparent 0)"
         
-        grid_html += f"""
-<a href="/?page=movie&movie_id={m.get('tmdb_id', '')}" target="_self" style="text-decoration:none; color:inherit; display:block;">
-    <div class="tmdb-card">
-        <div class="tmdb-card-img-wrap">
-            <img src="{m['img']}" alt="Poster" />
-        </div>
-        <div class="tmdb-rating-circle">
-            <div class="tmdb-rating-progress" style="background:conic-gradient({rating_color} {r_percent}%, transparent 0);">
-                <div class="tmdb-rating-inner">
-                    {m['display_rating']}
-                </div>
-            </div>
-        </div>
-        <div class="tmdb-card-info">
-            <div class="tmdb-card-title">{m['title']}</div>
-            <div class="tmdb-card-date">{m['date']}</div>
-        </div>
-    </div>
-</a>
-"""
-        
+        # Build the card using components.build_tmdb_card for consistency
+        card_html = components.build_tmdb_card(
+            m['title'], 
+            m['date'], 
+            m['display_rating'], 
+            m['img'], 
+            m.get('tmdb_id', ''), 
+            from_page="people", 
+            artist_id=artist_id
+        )
+        grid_html += card_html
+    
     if grid_html:
         st.markdown(f"""
 <div style="font-family: 'Source Sans Pro', Arial, sans-serif; padding:10px 0;">

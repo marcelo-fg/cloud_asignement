@@ -1,10 +1,10 @@
-# Movie Explorer — Cloud & Advanced Analytics Assignment 1
+# MovieFinder — Cloud & Advanced Analytics Assignment 1
 
 A Streamlit web application that queries a **Google BigQuery** movie database with dynamic SQL filters, and enriches results with movie posters, overviews, and cast information from **The Movie Database (TMDB) API**.
 
 ## 🌐 Live Demo
 
-> **[https://movie-app-262418330780.europe-west6.run.app](https://movie-app-262418330780.europe-west6.run.app)**
+> **[https://moviefinder-262418330780.europe-west6.run.app](https://moviefinder-262418330780.europe-west6.run.app)**
 
 Deployed on **Google Cloud Run** (europe-west6 / Zürich) — publicly accessible, no login required.
 
@@ -102,11 +102,11 @@ Open [http://localhost:8501](http://localhost:8501)
 
 ### Build & Run Locally
 ```bash
-docker build -t movie-app .
+docker build -t moviefinder .
 docker run -p 8080:8080 \
   -e TMDB_API_KEY="your-tmdb-key" \
   -e GCP_SA_JSON='{"type":"service_account",...}' \
-  movie-app
+  moviefinder
 ```
 Open [http://localhost:8080](http://localhost:8080)
 
@@ -135,7 +135,7 @@ for SECRET in TMDB_API_KEY GCP_SERVICE_ACCOUNT; do
 done
 
 # 4. Deploy (secrets are injected automatically as env vars)
-gcloud run deploy movie-app \
+gcloud run deploy moviefinder \
   --source . \
   --region europe-west6 \
   --allow-unauthenticated \

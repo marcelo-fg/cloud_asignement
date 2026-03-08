@@ -1,7 +1,7 @@
 # ─── Dockerfile for Cloud Run deployment ─────────────────────────────────────
-# Build:  docker build -t movie-app .
-# Run:    docker run -p 8080:8080 movie-app
-# Deploy: gcloud run deploy movie-app --source . --region europe-west6 \
+# Build:  docker build -t moviefinder .
+# Run:    docker run -p 8080:8080 moviefinder
+# Deploy: gcloud run deploy moviefinder --source . --region europe-west6 \
 #                  --allow-unauthenticated --port 8080
 
 FROM python:3.11-slim

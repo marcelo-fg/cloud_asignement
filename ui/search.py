@@ -249,7 +249,7 @@ def _render_results(df, sort_by, tmdb_api):
                 })
 
             grid_html = "".join([
-                components.build_tmdb_card(m['title'], m['date'].split(', ')[-1], f"{float(m['display_rating']):.1f}", m['img'], m.get('tmdb_id', ''))
+                components.build_tmdb_card(m['title'], m['date'].split(', ')[-1], f"{float(m['display_rating']):.1f}", m['img'], m.get('tmdb_id', ''), from_page="search")
                 for m in enriched_movies
             ])
             
