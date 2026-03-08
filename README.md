@@ -1,4 +1,4 @@
-# 🎬 Movie Explorer — Cloud & Advanced Analytics Assignment 1
+# Movie Explorer — Cloud & Advanced Analytics Assignment 1
 
 A Streamlit web application that queries a **Google BigQuery** movie database with dynamic SQL filters, and enriches results with movie posters, overviews, and cast information from **The Movie Database (TMDB) API**.
 
@@ -12,7 +12,7 @@ Deployed on **Google Cloud Run** (europe-west6 / Zürich) — publicly accessibl
 
 
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 app.py              ← Streamlit UI + logic layer
@@ -23,7 +23,7 @@ app.py              ← Streamlit UI + logic layer
 
 ---
 
-## ✨ Features
+## Features
 
 | Feature | SQL Implementation |
 |---|---|
@@ -39,7 +39,7 @@ app.py              ← Streamlit UI + logic layer
 
 ---
 
-## 📦 BigQuery Tables
+## BigQuery Tables
 
 ```
 assignement_1.movies  — movieId, title, genres, tmdbId, language, release_year, country
@@ -50,7 +50,7 @@ assignement_1.ratings — userId, movieId, rating, timestamp
 
 ---
 
-## 🚀 Local Development
+## Local Development
 
 ### Prerequisites
 - Python 3.11+
@@ -112,7 +112,7 @@ Open [http://localhost:8080](http://localhost:8080)
 
 ---
 
-## ☁️ Cloud Run Deployment
+## Cloud Run Deployment
 
 Secrets are stored in **Google Secret Manager** — no env vars with plain-text credentials needed.
 
@@ -154,13 +154,13 @@ echo -n "NEW_TMDB_KEY" | gcloud secrets versions add TMDB_API_KEY --data-file=-
 cat new-service-account.json | gcloud secrets versions add GCP_SERVICE_ACCOUNT --data-file=-
 ```
 
-> ✅ Secret Manager automatically injects secrets as environment variables into Cloud Run containers. No code change needed — `db.py` and `tmdb.py` read them via `os.getenv()` as before.
+> Secret Manager automatically injects secrets as environment variables into Cloud Run containers. No code change needed — `db.py` and `tmdb.py` read them via `os.getenv()` as before.
 
 ---
 
 
 
-## 🧪 Running Tests
+## Running Tests
 
 ```bash
 pip install pytest
@@ -169,20 +169,22 @@ pytest tests/ -v
 
 ---
 
-## 📁 Project Structure
+## Project Structure (Refactored)
+
+The project has been refactored for **modularity** and **DRY** principles:
 
 ```
 cloud_asignement/
-├── app.py               ← Streamlit UI
-├── db.py                ← BigQuery client + query executor
-├── query_builder.py     ← SQL builder (pure functions)
-├── tmdb.py              ← TMDB API integration
+├── app.py               ← Streamlit UI Entrypoint
+├── db.py                ← BigQuery client (Simplified)
+├── query_builder.py     ← SQL builder (Core logic)
+├── tmdb.py              ← TMDB API (Consolidated)
+├── ui/
+│   ├── components.py    ← Shared UI Primitives [NEW]
+│   ├── styles.py        ← Global CSS (Audited/Cleaned)
+│   └── ...              ← Modular Page Renderers
+├── tests/               ← Unit Tests (Expanded)
 ├── requirements.txt
 ├── Dockerfile
-├── tests/
-│   └── test_query_builder.py
-├── .streamlit/
-│   ├── config.toml
-│   └── secrets.toml     ← NOT committed to git
-└── README.md
+└── Procfile             ← Heroku/Vercel support [NEW]
 ```

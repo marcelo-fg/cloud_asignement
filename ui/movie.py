@@ -14,7 +14,7 @@ def render(database, query_b, tmdb_api):
         return
 
     with st.spinner("Chargement des détails du film..."):
-        details = tmdb_api.fetch_movie_details_v2(movie_id)
+        details = tmdb_api.fetch_movie_details(movie_id)
         
     # No navigation bar on the movie page as per user request
     

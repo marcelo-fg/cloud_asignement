@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import streamlit as st
 import pandas as pd
-from ui import styles
+from ui import styles, components
 
 
 @st.cache_data(ttl=600, show_spinner="Loading Cinematic UI...")
@@ -18,7 +18,7 @@ def _fetch_home_data_v2(_db, _qb, _tmdb):
     top_movies = []
     
     for rank, row in enumerate(df_top.itertuples(), 1):
-        details = _tmdb.fetch_movie_details_v2(row.tmdbId) if pd.notna(row.tmdbId) else {}
+        details = _tmdb.fetch_movie_details(row.tmdbId) if pd.notna(row.tmdbId) else {}
         poster = details.get("poster_url") or "https://via.placeholder.com/500x750/000000/38bdf8?text=No+Poster"
         backdrop = details.get("backdrop_url") or poster
         overview = details.get("overview", "Aucun résumé disponible.")
@@ -47,7 +47,7 @@ def _fetch_home_data_v2(_db, _qb, _tmdb):
         g = row.genre
         if g not in genre_data:
             genre_data[g] = {"movies": [], "sql": g_sql}
-        pop = _tmdb.fetch_movie_popularity_v2(row.tmdbId) if pd.notna(row.tmdbId) else {}
+        pop = _tmdb.fetch_movie_popularity(row.tmdbId) if pd.notna(row.tmdbId) else {}
         poster = pop.get("poster_url") or "https://via.placeholder.com/500x750/000000/38bdf8?text=No+Poster"
         genre_data[g]["movies"].append({
             "rank": row.rank_in_genre,
@@ -75,7 +75,7 @@ def _fetch_home_data_v2(_db, _qb, _tmdb):
         if label not in decade_data:
             decade_data[label] = {"movies": [], "sql": d_sql}
             
-        pop = _tmdb.fetch_movie_popularity_v2(row.tmdbId) if pd.notna(row.tmdbId) else {}
+        pop = _tmdb.fetch_movie_popularity(row.tmdbId) if pd.notna(row.tmdbId) else {}
         poster = pop.get("poster_url") or "https://via.placeholder.com/500x750/000000/38bdf8?text=No+Poster"
         decade_data[label]["movies"].append({
             "title": row.title,
@@ -88,39 +88,6 @@ def _fetch_home_data_v2(_db, _qb, _tmdb):
     return top_movies, top_sql, genre_data, decade_data, d_sql
 
 
-def build_tmdb_card(title, release_year, avg_rating_str, poster_url, tmdb_id):
-    try:
-        avg_r = float(avg_rating_str)
-    except:
-        avg_r = 0.0
-    rating_percent = int((avg_r / 5.0) * 100)
-    display_rating = f"{avg_r:.1f}"
-    rating_color = "#21d07a" if rating_percent >= 70 else "#d2d531" if rating_percent >= 40 else "#db2360"
-    
-    formatted_date = f"Jan 01, {release_year}" if release_year else "N/A"
-    
-    return f"""
-<a href="/?page=movie&movie_id={tmdb_id}" target="_self" style="text-decoration:none; color:inherit; display:block;">
-    <div class="tmdb-card">
-        <div class="tmdb-card-img-wrap">
-            <img src="{poster_url}" alt="Poster" />
-        </div>
-    
-        <div class="tmdb-rating-circle">
-            <div class="tmdb-rating-progress" style="background:conic-gradient({rating_color} {rating_percent}%, transparent 0);">
-                <div class="tmdb-rating-inner">
-                    {display_rating}
-                </div>
-            </div>
-        </div>
-    
-        <div class="tmdb-card-info">
-            <div class="tmdb-card-title">{title}</div>
-            <div class="tmdb-card-date">{formatted_date}</div>
-        </div>
-    </div>
-</a>
-"""
 
 def render(db, qb, tmdb) -> None:
     top_movies, top_sql, genre_data, decade_data, decade_sql = _fetch_home_data_v2(db, qb, tmdb)
@@ -159,47 +126,23 @@ def render(db, qb, tmdb) -> None:
     """
 
     # ── Generate Modals ────────────────────────────────────────────────────────
-    # Extract the genre SQL from genre_data (same SQL for all genres)
     genre_sql = next(iter(genre_data.values()))["sql"] if genre_data else ""
-
-    modals_html = f"""
-    <div id="sql-modal-top10" class="sql-modal">
-        <div class="sql-modal-content">
-            <span class="sql-close-btn" onclick="hideSql('top10')">&times;</span>
-            <h3 style="margin-top:0;">Top 10 All Time SQL</h3>
-            <pre>{top_sql}</pre>
-        </div>
-    </div>
-    """
     
-    modals_html += f"""
-    <div id="sql-modal-genre" class="sql-modal">
-        <div class="sql-modal-content">
-            <span class="sql-close-btn" onclick="hideSql('genre')">&times;</span>
-            <h3 style="margin-top:0;">Top 10 Category (Window Function)</h3>
-            <pre>{genre_sql}</pre>
-        </div>
-    </div>
-    """
-        
-    modals_html += f"""
-    <div id="sql-modal-decade" class="sql-modal">
-        <div class="sql-modal-content">
-            <span class="sql-close-btn" onclick="hideSql('decade')">&times;</span>
-            <h3 style="margin-top:0;">Top 20 by Decade SQL</h3>
-            <pre>{decade_sql}</pre>
-        </div>
-    </div>
-    """
+    modals_html = "".join([
+        components.render_sql_modal("top10", "Top 10 All Time SQL", top_sql),
+        components.render_sql_modal("genre", "Top 10 Category (Window Function)", genre_sql),
+        components.render_sql_modal("decade", "Top 20 by Decade SQL", decade_sql)
+    ])
 
     # ── Row 1: Top 10 All Time ─────────────────────────────────────────────────
     top10_cards_html = ""
     for m in top_movies:
+        card = components.build_tmdb_card(m['title'], m['year'], m['rating'], m['poster'], m['tmdbId'])
         top10_cards_html += f"""
         <div class="top10-card">
             <div class="top10-number">{m['rank']}</div>
             <div style="flex:1; position: relative; z-index: 2;">
-                {build_tmdb_card(m['title'], m['year'], m['rating'], m['poster'], m['tmdbId'])}
+                {card}
             </div>
         </div>
         """
@@ -209,13 +152,7 @@ def render(db, qb, tmdb) -> None:
         <div class="row-header">
             <div class="row-title">
                 Top 10 Global
-                <div class="info-icon" onclick="showSql('top10')">
-                    ?
-                    <div class="tooltip">
-                        Le classement est établi selon le nombre total d'évaluations et la note moyenne des utilisateurs.
-                        <span class="tooltip-cta">Cliquez pour voir la requête SQL</span>
-                    </div>
-                </div>
+                {components.render_info_icon('top10', "Le classement est établi selon le nombre total d'évaluations et la note moyenne des utilisateurs.")}
             </div>
         </div>
         <div class="carousel-wrapper">
@@ -243,17 +180,11 @@ def render(db, qb, tmdb) -> None:
         
         display_style = "display: block;" if first_genre else "display: none;"
         
-        cards_html = ""
-        for p in data['movies']:
-            cards_html += f"""
-            <div class="top10-card">
-                <div class="top10-number">{p['rank']}</div>
-                <div style="flex:1; position: relative; z-index: 2;">
-                    {build_tmdb_card(p['title'], p['year'], p['rating'], p['poster'], p['tmdbId'])}
-                </div>
-            </div>
-            """
-            
+        cards_html = "".join([
+            f'<div class="top10-card"><div class="top10-number">{p["rank"]}</div><div style="flex:1; position: relative; z-index: 2;">{components.build_tmdb_card(p["title"], p["year"], p["rating"], p["poster"], p["tmdbId"])}</div></div>'
+            for p in data['movies']
+        ])
+        
         genre_containers_html += f"""
         <div id="genre-carousel-{safe_label}" class="genre-carousel-group" style="{display_style}">
             <div class="carousel-wrapper">
@@ -272,13 +203,7 @@ def render(db, qb, tmdb) -> None:
         <div class="row-header" style="justify-content: space-between; align-items: center;">
             <div class="row-title" style="margin-bottom:0;">
                 Top 10&nbsp;<span id="selected-genre-name">{sorted_genres[0]}</span> 
-                <div class="info-icon" onclick="showSql('genre')">
-                    ?
-                    <div class="tooltip">
-                        Top 10 des films les plus populaires pour ce genre spécifique.
-                        <span class="tooltip-cta">Cliquez pour voir la requête SQL</span>
-                    </div>
-                </div>
+                {components.render_info_icon('genre', "Top 10 des films les plus populaires pour ce genre spécifique.")}
             </div>
             <div class="category-nav-wrapper">
                 <div class="category-nav">
@@ -306,13 +231,10 @@ def render(db, qb, tmdb) -> None:
         
         display_style = "display: block;" if first_dec else "display: none;"
         
-        cards_html = ""
-        for p in data['movies']:
-            cards_html += f"""
-            <div class="poster-card" style="border-radius:8px; overflow:visible;">
-                {build_tmdb_card(p['title'], p['year'], p['rating'], p['poster'], p['tmdbId'])}
-            </div>
-            """
+        cards_html = "".join([
+            f'<div class="poster-card" style="border-radius:8px; overflow:visible;">{components.build_tmdb_card(p["title"], p["year"], p["rating"], p["poster"], p["tmdbId"])}</div>'
+            for p in data['movies']
+        ])
             
         decade_containers_html += f"""
         <div id="decade-carousel-{safe_dec}" class="genre-carousel-group" style="{display_style}">
@@ -332,13 +254,7 @@ def render(db, qb, tmdb) -> None:
         <div class="row-header" style="justify-content: space-between; align-items: center;">
             <div class="row-title" style="margin-bottom:0;">
                 Grands succès des&nbsp;<span id="selected-decade-name">{ordered_labels[0]}</span> 
-                <div class="info-icon" onclick="showSql('decade')">
-                    ?
-                    <div class="tooltip">
-                        Les films les plus populaires de cette décennie.
-                        <span class="tooltip-cta">Cliquez pour voir la requête SQL</span>
-                    </div>
-                </div>
+                {components.render_info_icon('decade', "Les films les plus populaires de cette décennie.")}
             </div>
             <div class="category-nav-wrapper">
                 <div class="category-nav">

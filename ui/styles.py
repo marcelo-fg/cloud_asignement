@@ -16,7 +16,6 @@ html, body, [class*="css"], .stApp {
     overflow-x: hidden !important; /* Prevent horizontal scroll */
 }
 
-/* ── Hide Browser Scrollbars (Global) ────────────────────────────────────── */
 ::-webkit-scrollbar { display: none !important; }
 * { -ms-overflow-style: none !important; scrollbar-width: none !important; }
 
@@ -151,15 +150,7 @@ div[data-testid="stTextInput"] input {
 .nav-right input:focus { border-color: #38bdf8; }
 
 /* ── Pure CSS Auto-Rotating Hero Carousel ────────────────────────────────── */
-.hero-container {
-    position: relative;
-    width: 100vw;
-    height: 65vh; /* Balanced height */
-    min-height: 480px;
-    overflow: hidden;
-    background: #0B0B0C;
-    margin-bottom: -60px; /* Reduced overlap */
-}
+.hero-container { position: relative; width: 100vw; height: 65vh; min-height: 480px; overflow: hidden; background: #0B0B0C; margin-bottom: -60px; }
 .hero-slide {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;

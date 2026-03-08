@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import pandas as pd
 import streamlit as st
@@ -68,7 +69,6 @@ def get_client() -> bigquery.Client:
 
 def run_query(sql: str) -> pd.DataFrame:
     """Execute *sql* on BigQuery, print it to the terminal, return a DataFrame."""
-    import time
 
     print("\n" + "=" * 72)
     print("[BigQuery SQL]")
