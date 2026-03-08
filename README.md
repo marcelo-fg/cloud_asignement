@@ -10,21 +10,7 @@ Deployed on **Google Cloud Run** (europe-west6 / Zürich) — publicly accessibl
 
 ---
 
-## 📸 Screenshots
 
-### Homepage & Search
-![Homepage](screenshots/01_homepage.png)
-
-### Dataset Overview (Charts)
-![Dataset Overview](screenshots/02_dataset_overview.png)
-
-### Search Results with Autocomplete
-![Search Results](screenshots/03_search_results.png)
-
-### Movie Details with TMDB Poster & Cast
-![Movie Details](screenshots/04_movie_details.png)
-
----
 
 ## 🏗️ Architecture
 
@@ -128,24 +114,51 @@ Open [http://localhost:8080](http://localhost:8080)
 
 ## ☁️ Cloud Run Deployment
 
+Secrets are stored in **Google Secret Manager** — no env vars with plain-text credentials needed.
+
+### First deploy (setup once)
+
 ```bash
-# Build and deploy from source (recommended)
+# 1. Enable Secret Manager API
+gcloud services enable secretmanager.googleapis.com --project=gen-lang-client-0671890527
+
+# 2. Create the secrets
+echo -n "YOUR_TMDB_API_KEY" | gcloud secrets create TMDB_API_KEY --data-file=- --replication-policy=automatic
+cat your-service-account.json | gcloud secrets create GCP_SERVICE_ACCOUNT --data-file=- --replication-policy=automatic
+
+# 3. Grant Cloud Run's default SA access
+PROJECT_NUMBER=$(gcloud projects describe gen-lang-client-0671890527 --format='value(projectNumber)')
+for SECRET in TMDB_API_KEY GCP_SERVICE_ACCOUNT; do
+  gcloud secrets add-iam-policy-binding $SECRET \
+    --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+    --role="roles/secretmanager.secretAccessor"
+done
+
+# 4. Deploy (secrets are injected automatically as env vars)
 gcloud run deploy movie-app \
   --source . \
   --region europe-west6 \
   --allow-unauthenticated \
   --port 8080 \
   --project gen-lang-client-0671890527 \
-  --env-vars-file cloudrun_env.yaml
+  --update-secrets="TMDB_API_KEY=TMDB_API_KEY:latest,GCP_SA_JSON=GCP_SERVICE_ACCOUNT:latest"
 ```
 
-Where `cloudrun_env.yaml` contains:
-```yaml
-TMDB_API_KEY: "your-tmdb-api-key"
-GCP_SA_JSON: '{"type":"service_account",...}'
+### Update secrets (rotate keys)
+
+```bash
+# Update TMDB key
+echo -n "NEW_TMDB_KEY" | gcloud secrets versions add TMDB_API_KEY --data-file=-
+
+# Update SA JSON
+cat new-service-account.json | gcloud secrets versions add GCP_SERVICE_ACCOUNT --data-file=-
 ```
+
+> ✅ Secret Manager automatically injects secrets as environment variables into Cloud Run containers. No code change needed — `db.py` and `tmdb.py` read them via `os.getenv()` as before.
 
 ---
+
+
 
 ## 🧪 Running Tests
 
@@ -166,7 +179,6 @@ cloud_asignement/
 ├── tmdb.py              ← TMDB API integration
 ├── requirements.txt
 ├── Dockerfile
-├── screenshots/         ← UI screenshots for README
 ├── tests/
 │   └── test_query_builder.py
 ├── .streamlit/

@@ -46,24 +46,24 @@ import query_builder as qb
 
 class TestAutocompleteQuery:
     def test_contains_prefix(self):
-        sql = qb.build_autocomplete_query("inc")
+        sql = qb.build_movie_title_search_query("inc")
         assert "inc" in sql.lower()
 
     def test_limit_10(self):
-        sql = qb.build_autocomplete_query("star")
+        sql = qb.build_movie_title_search_query("star")
         assert "LIMIT 10" in sql
 
     def test_case_insensitive(self):
-        sql = qb.build_autocomplete_query("star")
+        sql = qb.build_movie_title_search_query("star")
         assert "LOWER" in sql
 
     def test_empty_prefix(self):
-        sql = qb.build_autocomplete_query("")
+        sql = qb.build_movie_title_search_query("")
         assert "SELECT" in sql
         assert "LIMIT 10" in sql
 
     def test_sql_injection_escape(self):
-        sql = qb.build_autocomplete_query("O'Brien")
+        sql = qb.build_movie_title_search_query("O'Brien")
         # Raw unescaped single-quote must not appear in the LIKE value
         # The escaped form \' or '' is acceptable
         assert "O'Brien" not in sql
@@ -107,23 +107,23 @@ class TestMovieSearchQuery:
         assert "|" in sql  # Handles pipe-separated genres column
 
     def test_year_filter(self):
-        sql = qb.build_movie_search_query(min_year=2000)
+        sql = qb.build_movie_search_query(year_min=2000)
         assert "2000" in sql
         assert "release_year" in sql
 
     def test_year_1900_not_applied(self):
-        sql = qb.build_movie_search_query(min_year=1900)
+        sql = qb.build_movie_search_query(year_min=1900)
         assert "1900" not in sql
 
     def test_rating_filter_with_join(self):
-        sql = qb.build_movie_search_query(min_rating=3.5, has_ratings_table=True)
+        sql = qb.build_movie_search_query(rating_min=3.5, has_ratings_table=True)
         assert "JOIN" in sql
         assert "AVG" in sql
         assert "HAVING" in sql
         assert "3.5" in sql
 
     def test_rating_filter_no_ratings_table(self):
-        sql = qb.build_movie_search_query(min_rating=3.5, has_ratings_table=False)
+        sql = qb.build_movie_search_query(rating_min=3.5, has_ratings_table=False)
         assert "JOIN" not in sql
 
     def test_combo_filters(self):
@@ -131,7 +131,7 @@ class TestMovieSearchQuery:
             title="toy",
             language="en",
             genres=["Animation"],
-            min_year=1995,
+            year_min=1995,
         )
         assert "toy" in sql.lower()
         assert "'en'" in sql
