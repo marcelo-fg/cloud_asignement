@@ -18,7 +18,7 @@ from ui import home, styles, search, people, movie
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Cineby Explorer",
+    page_title="MovieFinder",
     layout="wide",
     initial_sidebar_state="collapsed",
 )

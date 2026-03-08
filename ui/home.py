@@ -112,7 +112,7 @@ def render(db, qb, tmdb) -> None:
                     <div class="hero-title">{m['title']}</div>
                     <div class="hero-summary">{m['overview']}</div>
                     <div class="hero-buttons">
-                        <a href="/?page=movie&movie_id={m['tmdbId']}" target="_self" class="btn btn-primary">Plus d'info</a>
+                        <a href="/?page=movie&movie_id={m['tmdbId']}&from=home" target="_self" class="btn btn-primary">Plus d'info</a>
                     </div>
                 </div>
             </div>
@@ -137,7 +137,7 @@ def render(db, qb, tmdb) -> None:
     # ── Row 1: Top 10 All Time ─────────────────────────────────────────────────
     top10_cards_html = ""
     for m in top_movies:
-        card = components.build_tmdb_card(m['title'], m['year'], m['rating'], m['poster'], m['tmdbId'])
+        card = components.build_tmdb_card(m['title'], m['year'], m['rating'], m['poster'], m['tmdbId'], from_page="home")
         top10_cards_html += f"""
         <div class="top10-card">
             <div class="top10-number">{m['rank']}</div>
@@ -181,7 +181,7 @@ def render(db, qb, tmdb) -> None:
         display_style = "display: block;" if first_genre else "display: none;"
         
         cards_html = "".join([
-            f'<div class="top10-card"><div class="top10-number">{p["rank"]}</div><div style="flex:1; position: relative; z-index: 2;">{components.build_tmdb_card(p["title"], p["year"], p["rating"], p["poster"], p["tmdbId"])}</div></div>'
+            f'<div class="top10-card"><div class="top10-number">{p["rank"]}</div><div style="flex:1; position: relative; z-index: 2;">{components.build_tmdb_card(p["title"], p["year"], p["rating"], p["poster"], p["tmdbId"], from_page="home")}</div></div>'
             for p in data['movies']
         ])
         
@@ -232,7 +232,7 @@ def render(db, qb, tmdb) -> None:
         display_style = "display: block;" if first_dec else "display: none;"
         
         cards_html = "".join([
-            f'<div class="poster-card" style="border-radius:8px; overflow:visible;">{components.build_tmdb_card(p["title"], p["year"], p["rating"], p["poster"], p["tmdbId"])}</div>'
+            f'<div class="poster-card" style="border-radius:8px; overflow:visible;">{components.build_tmdb_card(p["title"], p["year"], p["rating"], p["poster"], p["tmdbId"], from_page="home")}</div>'
             for p in data['movies']
         ])
             

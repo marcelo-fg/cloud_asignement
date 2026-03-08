@@ -4,7 +4,7 @@ ui/components.py – Shared UI components and HTML builders
 
 from __future__ import annotations
 
-def build_tmdb_card(title: str, release_year: str | int, avg_rating_str: str | float, poster_url: str, tmdb_id: str | int) -> str:
+def build_tmdb_card(title: str, release_year: str | int, avg_rating_str: str | float, poster_url: str, tmdb_id: str | int, from_page: str = "", artist_id: str | int = "") -> str:
     """Build a Netflix/TMDB-style movie card (HTML)."""
     try:
         avg_r = float(avg_rating_str)
@@ -18,8 +18,14 @@ def build_tmdb_card(title: str, release_year: str | int, avg_rating_str: str | f
     rating_color = "#21d07a" if rating_percent >= 70 else "#d2d531" if rating_percent >= 40 else "#db2360"
     formatted_date = f"Jan 01, {release_year}" if release_year else "N/A"
     
+    url = f"/?page=movie&movie_id={tmdb_id}"
+    if from_page:
+        url += f"&from={from_page}"
+    if artist_id:
+        url += f"&artist_id={artist_id}"
+    
     return f"""
-<a href="/?page=movie&movie_id={tmdb_id}" target="_self" style="text-decoration:none; color:inherit; display:block;">
+<a href="{url}" target="_self" style="text-decoration:none; color:inherit; display:block;">
     <div class="tmdb-card">
         <div class="tmdb-card-img-wrap">
             <img src="{poster_url}" alt="Poster" />
