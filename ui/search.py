@@ -1,5 +1,5 @@
 import streamlit as st
-from ui import styles
+from ui import styles, components
 import db
 import query_builder
 import tmdb
@@ -227,8 +227,8 @@ def _render_results(df, sort_by, tmdb_api):
                 display_rating = f"{avg_r:.1f}"
             
                 # Fetch TMDB data solely for the poster image
-                tmdb_data = tmdb.fetch_movie_popularity_v2(row.get("tmdbId"))
-                poster = tmdb_data.get("poster_url") if tmdb_data else None
+                pop = tmdb_api.fetch_movie_popularity(row.get("tmdbId")) if pd.notna(row.get("tmdbId")) else {}
+                poster = pop.get("poster_url") if pop else None
                 
                 # Light placeholder for TMDB theme
                 if not poster:
@@ -248,41 +248,16 @@ def _render_results(df, sort_by, tmdb_api):
                     "tmdb_id": row.get("tmdbId")
                 })
 
-            grid_html = ""
-            for m in enriched_movies:
-                r_percent = m["rating_percent"]
-                rating_color = "#21d07a" if r_percent >= 70 else "#d2d531" if r_percent >= 40 else "#db2360"
-            
-                grid_html += f"""
-<a href="/?page=movie&movie_id={m.get('tmdb_id', '')}" target="_self" style="text-decoration:none; color:inherit; display:block;">
-    <div class="tmdb-card">
-        <div class="tmdb-card-img-wrap">
-            <img src="{m['img']}" alt="Poster" />
-        </div>
-        <div class="tmdb-rating-circle">
-            <div class="tmdb-rating-progress" style="background:conic-gradient({rating_color} {r_percent}%, transparent 0);">
-                <div class="tmdb-rating-inner">
-                    {m['display_rating']}
-                </div>
-            </div>
-        </div>
-        <div class="tmdb-card-info">
-            <div class="tmdb-card-title">{m['title']}</div>
-            <div class="tmdb-card-date">{m['date']}</div>
-        </div>
-    </div>
-</a>
-"""
+            grid_html = "".join([
+                components.build_tmdb_card(m['title'], m['date'].split(', ')[-1], f"{float(m['display_rating']):.1f}", m['img'], m.get('tmdb_id', ''))
+                for m in enriched_movies
+            ])
             
             if grid_html:
                 st.markdown(f"""
 <div style="font-family: 'Source Sans Pro', Arial, sans-serif; padding:10px 0;">
-<style>
-.movie-grid-custom {{ display:grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap:20px; width: 100%; }}
-</style>
-<div class="movie-grid-custom">
-{grid_html}
-</div>
+<style>.movie-grid-custom {{ display:grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap:20px; width: 100%; }}</style>
+<div class="movie-grid-custom">{grid_html}</div>
 </div>
 """, unsafe_allow_html=True)
             else:

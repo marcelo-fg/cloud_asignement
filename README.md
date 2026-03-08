@@ -169,20 +169,22 @@ pytest tests/ -v
 
 ---
 
-## Project Structure
+## Project Structure (Refactored)
+
+The project has been refactored for **modularity** and **DRY** principles:
 
 ```
 cloud_asignement/
-├── app.py               ← Streamlit UI
-├── db.py                ← BigQuery client + query executor
-├── query_builder.py     ← SQL builder (pure functions)
-├── tmdb.py              ← TMDB API integration
+├── app.py               ← Streamlit UI Entrypoint
+├── db.py                ← BigQuery client (Simplified)
+├── query_builder.py     ← SQL builder (Core logic)
+├── tmdb.py              ← TMDB API (Consolidated)
+├── ui/
+│   ├── components.py    ← Shared UI Primitives [NEW]
+│   ├── styles.py        ← Global CSS (Audited/Cleaned)
+│   └── ...              ← Modular Page Renderers
+├── tests/               ← Unit Tests (Expanded)
 ├── requirements.txt
 ├── Dockerfile
-├── tests/
-│   └── test_query_builder.py
-├── .streamlit/
-│   ├── config.toml
-│   └── secrets.toml     ← NOT committed to git
-└── README.md
+└── Procfile             ← Heroku/Vercel support [NEW]
 ```

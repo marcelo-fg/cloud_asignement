@@ -44,47 +44,21 @@ def _get(endpoint: str, params: dict) -> dict:
 
 # ── Movie detail (full, with cast) ────────────────────────────────────────────
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_movie_details_v2(tmdb_id: int | str) -> dict[str, Any]:
-    """
-    Fetch full movie details + cast from TMDB.
-
-    Returns keys: title, overview, tagline, release_date, vote_average,
-                  vote_count, popularity, revenue, poster_url, backdrop_url, genres, cast, homepage.
-    Returns {} on error.
-    """
+def fetch_movie_details(tmdb_id: int | str) -> dict[str, Any]:
+    """Fetch full movie details + cast from TMDB. Returns {} on error."""
     api_key = _get_api_key()
     if not api_key or not tmdb_id:
         return {}
     try:
         params = {"api_key": api_key, "language": "fr-FR", "append_to_response": "credits,keywords"}
-        mid = int(tmdb_id)
-
-        data = _get(f"movie/{mid}", params)
+        data = _get(f"movie/{int(tmdb_id)}", params)
         
         # Fallback to English if French overview is empty
         if not data.get("overview"):
-            en_data = _get(f"movie/{mid}", {"api_key": api_key, "language": "en-US"})
+            en_data = _get(f"movie/{int(tmdb_id)}", {"api_key": api_key, "language": "en-US"})
             data["overview"] = en_data.get("overview", "")
 
         credits = data.get("credits", {})
-
-        cast = [
-            {
-                "name": a.get("name", ""),
-                "character": a.get("character", ""),
-                "profile_url": _poster_url(a.get("profile_path")),
-            }
-            for a in credits.get("cast", [])[:8]
-        ]
-        
-        directors = [
-            cr.get("name", "")
-            for cr in credits.get("crew", []) if cr.get("job") == "Director"
-        ]
-        
-        keywords = [k.get("name", "") for k in data.get("keywords", {}).get("keywords", [])]
-
         return {
             "title": data.get("title", ""),
             "overview": data.get("overview", ""),
@@ -97,12 +71,15 @@ def fetch_movie_details_v2(tmdb_id: int | str) -> dict[str, Any]:
             "poster_url": _poster_url(data.get("poster_path")),
             "backdrop_url": _backdrop_url(data.get("backdrop_path")),
             "genres": [g["name"] for g in data.get("genres", [])],
-            "cast": cast,
-            "directors": directors,
-            "keywords": keywords,
+            "cast": [
+                {"name": a.get("name", ""), "character": a.get("character", ""), "profile_url": _poster_url(a.get("profile_path"))}
+                for a in credits.get("cast", [])[:8]
+            ],
+            "directors": [cr.get("name", "") for cr in credits.get("crew", []) if cr.get("job") == "Director"],
+            "keywords": [k.get("name", "") for k in data.get("keywords", {}).get("keywords", [])],
             "homepage": data.get("homepage", ""),
         }
-    except requests.RequestException as exc:
+    except Exception as exc:
         print(f"[TMDB] Error fetching movie {tmdb_id}: {exc}")
         return {}
 
@@ -110,7 +87,7 @@ def fetch_movie_details_v2(tmdb_id: int | str) -> dict[str, Any]:
 # ── Movie lightweight (popularity signals only, no cast) ───────────────────────
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_movie_popularity_v2(tmdb_id: int | str) -> dict[str, Any]:
+def fetch_movie_popularity(tmdb_id: int | str) -> dict[str, Any]:
     """
     Lightweight fetch — poster + popularity signals only (no credits call).
     Used by Top Charts to enrich many films without N×2 API calls.
