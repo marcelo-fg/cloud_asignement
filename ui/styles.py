@@ -946,7 +946,7 @@ div[data-testid="stTextInput"] input {
 def inject():
     st.markdown(_CSS, unsafe_allow_html=True)
     page = st.query_params.get("page", "home")
-    if page in ["search", "people", "movie"]:
+    if page in ["search", "people", "movie", "recommend"]:
         st.markdown("""
         <style>
         .block-container {
@@ -969,6 +969,7 @@ def render_navbar(active_page="home"):
         ("home", "Home", "/?page=home"),
         ("search", "Recherche", "/?page=search"),
         ("people", "Artistes", "/?page=people"),
+        ("recommend", "Recommandations", "/?page=recommend"),
     ]
     links_html = "".join([f'<a class="nav-link {"active" if active_page == p[0] else ""}" href="{p[2]}" target="_self"><span>{p[1]}</span><div class="active-dot"></div></a>' for p in links])
     nav_html = f'<div class="nav-wrapper" id="nav-wrapper"><div class="nav-container-full"><div class="nav-left">{links_html}</div></div></div>'

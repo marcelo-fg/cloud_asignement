@@ -5,6 +5,26 @@ import query_builder
 import tmdb
 import pandas as pd
 import random
+import requests
+import os
+
+def _get_backend_url() -> str:
+    try:
+        return st.secrets.get("BACKEND_URL", os.environ.get("BACKEND_URL", "http://localhost:5001"))
+    except Exception:
+        return os.environ.get("BACKEND_URL", "http://localhost:5001")
+
+@st.cache_data(ttl=10, show_spinner=False)
+def _fetch_autocomplete(query: str) -> list:
+    """Call ES backend /autocomplete endpoint. Returns list of suggestion dicts."""
+    try:
+        url = _get_backend_url()
+        r = requests.get(f"{url}/autocomplete", params={"q": query}, timeout=2)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return []
 
 def render(database, qb, tmdb_api):
     # ── Nav Bar (Injected globally) ──────────────────────────────────────────
@@ -86,10 +106,29 @@ def render(database, qb, tmdb_api):
         with col_rate_max:
             rating_max = st.slider("Note MAX", min_value=0.0, max_value=5.0, value=5.0, step=0.5)
 
+        # ── Elasticsearch Autocomplete ────────────────────────────────────────────
+        # Shown when user has typed >= 2 chars; selecting a suggestion pins the search
+        # to that specific movie's TMDB ID (overrides TMDB semantic search below).
+        autocomplete_tmdb_id = None
+        if len(title_input) >= 2:
+            suggestions = _fetch_autocomplete(title_input)
+            if suggestions:
+                options_labels = ["-- Recherche générale --"] + [
+                    f"{s['title']} ({s.get('release_year', '')})" for s in suggestions
+                ]
+                sel_idx = st.selectbox(
+                    "Suggestions (Elasticsearch)",
+                    options=range(len(options_labels)),
+                    format_func=lambda i: options_labels[i],
+                    key="autocomplete_sel",
+                )
+                if sel_idx > 0:
+                    autocomplete_tmdb_id = suggestions[sel_idx - 1].get("tmdbId")
+
         # Handle "random selection if no filters"
         if not search_btn and not title_input and not genres_sel and language_sel == "None Selected" and rating_min == 0.0 and rating_max == 5.0 and year_sel[0] == 1900 and year_sel[1] == 2026:
             genres_sel = [random.choice(all_genres)]
-            
+
         st.markdown("<hr style='border: 1px solid rgba(255,255,255,0.1); margin: 30px 0;'>", unsafe_allow_html=True)
 
 
@@ -103,14 +142,15 @@ def render(database, qb, tmdb_api):
             
             if search_btn or title_input or genres_sel or language_sel != "None Selected" or rating_min > 0.0 or rating_max < 5.0 or year_sel[0] > 1900 or year_sel[1] < 2026:
                 tmdb_ids_list = None
-                
-                # If there's a text query, use TMDB semantic + typo-tolerant search first
-                if title_input:
+
+                if autocomplete_tmdb_id:
+                    # User selected a specific ES suggestion — pin to that TMDB ID
+                    tmdb_ids_list = [autocomplete_tmdb_id]
+                elif title_input:
+                    # Fall back to TMDB semantic + typo-tolerant search
                     with st.spinner("Analyse sémantique TMDB en cours..."):
                         tmdb_ids_list = tmdb_api.search_advanced_concepts(title_input, limit_pages=2)
                         if not tmdb_ids_list:
-                            # If completely empty from TMDB, we can force an empty list which yields 0 results, 
-                            # or fallback to string matching. Let's force empty to trust TMDB.
                             tmdb_ids_list = []
                             
                 sql = qb.build_movie_search_query(

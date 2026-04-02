@@ -1,0 +1,23 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      - GCP_PROJECT=${GCP_PROJECT}
+      - BQ_DATASET=${BQ_DATASET}
+      - ES_URL=${ES_URL}
+      - ES_API_KEY=${ES_API_KEY}
+      - TMDB_API_KEY=${TMDB_API_KEY}
+      - GCP_SA_JSON=${GCP_SA_JSON}
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - BACKEND_URL=http://backend:5000
+    depends_on:
+      - backend
