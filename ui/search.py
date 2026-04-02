@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_searchbox import st_searchbox
 from ui import styles, components
 import db
 import query_builder
@@ -14,14 +15,20 @@ def _get_backend_url() -> str:
     except Exception:
         return os.environ.get("BACKEND_URL", "http://localhost:5001")
 
-@st.cache_data(ttl=10, show_spinner=False)
-def _fetch_autocomplete(query: str) -> list:
-    """Call ES backend /autocomplete endpoint. Returns list of suggestion dicts."""
+def _search_movies(query: str) -> list:
+    """Called by st_searchbox on each keystroke. Returns list of (label, value) tuples."""
+    if len(query) < 2:
+        return []
     try:
         url = _get_backend_url()
         r = requests.get(f"{url}/autocomplete", params={"q": query}, timeout=2)
         if r.status_code == 200:
-            return r.json()
+            results = r.json()
+            # Return list of (display_label, tmdbId) tuples
+            return [
+                (f"{s['title']} ({s.get('release_year', '')})", s.get("tmdbId"))
+                for s in results if s.get("tmdbId")
+            ]
     except Exception:
         pass
     return []
@@ -40,19 +47,24 @@ def render(database, qb, tmdb_api):
 
     # ── Horizontal Filters ───────────────────────────────────────────────────
 
-        # Row 1: Single search bar (ES used internally on search)
+        # Row 1: Autocomplete search bar (ES-powered) + button
         col_search_text, col_search_btn = st.columns([5, 1], gap="medium")
         with col_search_text:
-            title_input = st.text_input("Rechercher un film", placeholder="Ex: Inception, The Matrix, Star Wars…", label_visibility="collapsed")
+            selected = st_searchbox(
+                _search_movies,
+                placeholder="Ex: Inception, The Matrix, Star Wars…",
+                key="movie_searchbox",
+                clear_on_submit=False,
+            )
         with col_search_btn:
             search_btn = st.button("Rechercher")
 
-        # ES autocomplete hint shown below input (no interaction required)
-        if len(title_input) >= 2:
-            suggestions = _fetch_autocomplete(title_input)
-            if suggestions:
-                hint = " · ".join(f"{s['title']}" for s in suggestions[:5])
-                st.caption(f"💡 Suggestions : {hint}")
+        # selected is the tmdbId chosen, or None if user typed without selecting
+        autocomplete_tmdb_id = selected if isinstance(selected, (int, float)) else None
+        # For display/fallback: extract raw text the user typed
+        title_input = st.session_state.get("movie_searchbox", "") or ""
+        if isinstance(title_input, dict):
+            title_input = title_input.get("search", "")
 
         # Row 2: Secondary Dropdowns and Sliders
         col_sort, col_genre, col_lang, col_year, col_rate_min, col_rate_max = st.columns([2, 2, 2, 2, 3, 3], gap="large")
@@ -113,11 +125,9 @@ def render(database, qb, tmdb_api):
         with col_rate_max:
             rating_max = st.slider("Note MAX", min_value=0.0, max_value=5.0, value=5.0, step=0.5)
 
-        # ES used internally to resolve tmdbIds from the title query
-        autocomplete_tmdb_id = None
 
         # Handle "random selection if no filters"
-        if not search_btn and not title_input and not genres_sel and language_sel == "None Selected" and rating_min == 0.0 and rating_max == 5.0 and year_sel[0] == 1900 and year_sel[1] == 2026:
+        if not search_btn and not autocomplete_tmdb_id and not title_input and not genres_sel and language_sel == "None Selected" and rating_min == 0.0 and rating_max == 5.0 and year_sel[0] == 1900 and year_sel[1] == 2026:
             genres_sel = [random.choice(all_genres)]
 
         st.markdown("<hr style='border: 1px solid rgba(255,255,255,0.1); margin: 30px 0;'>", unsafe_allow_html=True)
@@ -131,20 +141,18 @@ def render(database, qb, tmdb_api):
             # Add a slider to control the max number of results
             limit = st.slider("Nombre maximum de résultats", min_value=10, max_value=500, value=100, step=10, key="limit_general", help="Un nombre maximum de 100 résultats est recommandé pour préserver la fluidité de la page.")
             
-            if search_btn or title_input or genres_sel or language_sel != "None Selected" or rating_min > 0.0 or rating_max < 5.0 or year_sel[0] > 1900 or year_sel[1] < 2026:
+            if search_btn or autocomplete_tmdb_id or title_input or genres_sel or language_sel != "None Selected" or rating_min > 0.0 or rating_max < 5.0 or year_sel[0] > 1900 or year_sel[1] < 2026:
                 tmdb_ids_list = None
 
-                if title_input:
-                    # Try ES first for fast, typo-tolerant title matching
-                    es_suggestions = _fetch_autocomplete(title_input)
-                    if es_suggestions:
-                        tmdb_ids_list = [s["tmdbId"] for s in es_suggestions if s.get("tmdbId")]
-                    else:
-                        # Fallback to TMDB semantic search
-                        with st.spinner("Analyse sémantique TMDB en cours..."):
-                            tmdb_ids_list = tmdb_api.search_advanced_concepts(title_input, limit_pages=2)
-                            if not tmdb_ids_list:
-                                tmdb_ids_list = []
+                if autocomplete_tmdb_id:
+                    # User selected a specific suggestion from autocomplete
+                    tmdb_ids_list = [int(autocomplete_tmdb_id)]
+                elif title_input:
+                    # User typed but didn't pick a suggestion — fallback to TMDB semantic search
+                    with st.spinner("Recherche en cours..."):
+                        tmdb_ids_list = tmdb_api.search_advanced_concepts(title_input, limit_pages=2)
+                        if not tmdb_ids_list:
+                            tmdb_ids_list = []
                             
                 sql = qb.build_movie_search_query(
                     title="" if tmdb_ids_list is not None else title_input, # Don't use text LIKE if we have TMDB IDs
