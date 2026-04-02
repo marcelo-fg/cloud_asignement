@@ -3,6 +3,17 @@ ui/components.py – Shared UI components and HTML builders
 """
 
 from __future__ import annotations
+import re
+
+def _normalize_title(title: str) -> str:
+    """'Matrix, The (1999)' → 'The Matrix'"""
+    if not title:
+        return title
+    title = re.sub(r"\s*\(\d{4}\)\s*$", "", title).strip()
+    m = re.search(r",\s*(The|A|An)$", title, re.IGNORECASE)
+    if m:
+        return f"{m.group(1)} {title[:m.start()].strip()}"
+    return title
 
 def build_tmdb_card(title: str, release_year: str | int, avg_rating_str: str | float, poster_url: str, tmdb_id: str | int, from_page: str = "", artist_id: str | int = "") -> str:
     """Build a Netflix/TMDB-style movie card (HTML)."""
@@ -18,6 +29,7 @@ def build_tmdb_card(title: str, release_year: str | int, avg_rating_str: str | f
     rating_color = "#21d07a" if rating_percent >= 70 else "#d2d531" if rating_percent >= 40 else "#db2360"
     formatted_date = f"Jan 01, {release_year}" if release_year else "N/A"
     
+    title = _normalize_title(title)
     url = f"/?page=movie&movie_id={tmdb_id}"
     if from_page:
         url += f"&from={from_page}"

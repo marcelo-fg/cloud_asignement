@@ -1,3 +1,4 @@
+import re
 import streamlit as st
 from streamlit_searchbox import st_searchbox
 from ui import styles, components
@@ -8,6 +9,18 @@ import pandas as pd
 import random
 import requests
 import os
+
+def _normalize_title(title: str) -> str:
+    """'Matrix, The (1999)' → 'The Matrix'"""
+    if not title:
+        return title
+    # Strip trailing year "(YYYY)"
+    title = re.sub(r"\s*\(\d{4}\)\s*$", "", title).strip()
+    # Move ", The / , A / , An" from end to front
+    m = re.search(r",\s*(The|A|An)$", title, re.IGNORECASE)
+    if m:
+        return f"{m.group(1)} {title[:m.start()].strip()}"
+    return title
 
 def _get_backend_url() -> str:
     try:
@@ -281,7 +294,7 @@ def _render_results(df, sort_by, tmdb_api):
                 formatted_date = f"Jan 01, {raw_date}" if raw_date else "N/A"
             
                 enriched_movies.append({
-                    "title": row["title"],
+                    "title": _normalize_title(str(row["title"])),
                     "date": formatted_date,
                     "rating_percent": rating_percent,
                     "display_rating": display_rating,
