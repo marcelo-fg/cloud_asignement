@@ -39,14 +39,21 @@ def render(database, qb, tmdb_api):
         st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Horizontal Filters ───────────────────────────────────────────────────
-    
-        # Row 1: Main Text Search & Button
+
+        # Row 1: Single search bar (ES used internally on search)
         col_search_text, col_search_btn = st.columns([5, 1], gap="medium")
         with col_search_text:
-            title_input = st.text_input("Mots-clés", placeholder="Filtrer par mot-clé...")
+            title_input = st.text_input("Rechercher un film", placeholder="Ex: Inception, The Matrix, Star Wars…", label_visibility="collapsed")
         with col_search_btn:
             search_btn = st.button("Rechercher")
-            
+
+        # ES autocomplete hint shown below input (no interaction required)
+        if len(title_input) >= 2:
+            suggestions = _fetch_autocomplete(title_input)
+            if suggestions:
+                hint = " · ".join(f"{s['title']}" for s in suggestions[:5])
+                st.caption(f"💡 Suggestions : {hint}")
+
         # Row 2: Secondary Dropdowns and Sliders
         col_sort, col_genre, col_lang, col_year, col_rate_min, col_rate_max = st.columns([2, 2, 2, 2, 3, 3], gap="large")
         
@@ -106,24 +113,8 @@ def render(database, qb, tmdb_api):
         with col_rate_max:
             rating_max = st.slider("Note MAX", min_value=0.0, max_value=5.0, value=5.0, step=0.5)
 
-        # ── Elasticsearch Autocomplete ────────────────────────────────────────────
-        # Shown when user has typed >= 2 chars; selecting a suggestion pins the search
-        # to that specific movie's TMDB ID (overrides TMDB semantic search below).
+        # ES used internally to resolve tmdbIds from the title query
         autocomplete_tmdb_id = None
-        if len(title_input) >= 2:
-            suggestions = _fetch_autocomplete(title_input)
-            if suggestions:
-                options_labels = ["-- Recherche générale --"] + [
-                    f"{s['title']} ({s.get('release_year', '')})" for s in suggestions
-                ]
-                sel_idx = st.selectbox(
-                    "Suggestions (Elasticsearch)",
-                    options=range(len(options_labels)),
-                    format_func=lambda i: options_labels[i],
-                    key="autocomplete_sel",
-                )
-                if sel_idx > 0:
-                    autocomplete_tmdb_id = suggestions[sel_idx - 1].get("tmdbId")
 
         # Handle "random selection if no filters"
         if not search_btn and not title_input and not genres_sel and language_sel == "None Selected" and rating_min == 0.0 and rating_max == 5.0 and year_sel[0] == 1900 and year_sel[1] == 2026:
@@ -143,15 +134,17 @@ def render(database, qb, tmdb_api):
             if search_btn or title_input or genres_sel or language_sel != "None Selected" or rating_min > 0.0 or rating_max < 5.0 or year_sel[0] > 1900 or year_sel[1] < 2026:
                 tmdb_ids_list = None
 
-                if autocomplete_tmdb_id:
-                    # User selected a specific ES suggestion — pin to that TMDB ID
-                    tmdb_ids_list = [autocomplete_tmdb_id]
-                elif title_input:
-                    # Fall back to TMDB semantic + typo-tolerant search
-                    with st.spinner("Analyse sémantique TMDB en cours..."):
-                        tmdb_ids_list = tmdb_api.search_advanced_concepts(title_input, limit_pages=2)
-                        if not tmdb_ids_list:
-                            tmdb_ids_list = []
+                if title_input:
+                    # Try ES first for fast, typo-tolerant title matching
+                    es_suggestions = _fetch_autocomplete(title_input)
+                    if es_suggestions:
+                        tmdb_ids_list = [s["tmdbId"] for s in es_suggestions if s.get("tmdbId")]
+                    else:
+                        # Fallback to TMDB semantic search
+                        with st.spinner("Analyse sémantique TMDB en cours..."):
+                            tmdb_ids_list = tmdb_api.search_advanced_concepts(title_input, limit_pages=2)
+                            if not tmdb_ids_list:
+                                tmdb_ids_list = []
                             
                 sql = qb.build_movie_search_query(
                     title="" if tmdb_ids_list is not None else title_input, # Don't use text LIKE if we have TMDB IDs
