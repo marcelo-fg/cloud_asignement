@@ -25,12 +25,17 @@ html, body, [class*="css"], .stApp {
     max-width: 100% !important;
     overflow-x: hidden !important;
 }
-header, footer, [data-testid="collapsedControl"] { display: none !important; }
+[data-testid="stHeader"], footer, [data-testid="collapsedControl"] { display: none !important; }
 
 /* ── The main search button styling ──────────────────────────────────────── */
-.stButton {
+.block-container .stButton {
     display: flex !important;
     justify-content: flex-end !important;
+}
+/* Reset button alignment inside dialogs */
+[data-testid="stModal"] .stButton,
+[role="dialog"] .stButton {
+    justify-content: center !important;
 }
 .stButton > button {
     background-color: #01b4e4 !important; /* TMDB Blue */

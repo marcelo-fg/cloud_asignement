@@ -413,16 +413,18 @@ _STEP_TITLES = [
     "Films déjà vus",
 ]
 
-def _render_questionnaire(tmdb):
+@st.dialog("Personnalisez vos recommandations", width="large")
+def _questionnaire_dialog(tmdb):
+    """Modal dialog for the recommendation questionnaire."""
     step = st.session_state.pv_step
 
-    # Progress bar (styled like the existing row-title blue accent)
+    # Progress bar
     progress_pct = int(step / 5 * 100)
     st.markdown(f"""
     <div style="margin-bottom:1.2rem;">
         <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
-            <span style="color:#FFFFFF; font-weight:700; font-size:1.05rem;">{_STEP_TITLES[step-1]}</span>
-            <span style="color:#666; font-size:0.85rem;">Étape {step} sur 5</span>
+            <span style="font-weight:700; font-size:1.05rem;">{_STEP_TITLES[step-1]}</span>
+            <span style="color:#888; font-size:0.85rem;">Étape {step} sur 5</span>
         </div>
         <div style="height:3px; background:rgba(255,255,255,0.08); border-radius:2px; overflow:hidden;">
             <div style="height:100%; width:{progress_pct}%; background:#38bdf8; border-radius:2px; transition:width 0.3s ease;"></div>
@@ -444,15 +446,19 @@ def _render_questionnaire(tmdb):
 
     # Navigation
     st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
-    col_back, _, col_skip, col_next = st.columns([1.2, 2, 1.2, 1.2])
-    with col_back:
+    c1, c2, c3 = st.columns(3)
+    with c1:
         if step > 1:
             st.button("Précédent", on_click=_go_back_cb, key=f"pv_back_{step}", use_container_width=True)
-    with col_skip:
+    with c2:
         st.button("Passer", on_click=_go_skip_cb, key=f"pv_skip_{step}", use_container_width=True)
-    with col_next:
-        label = "Valider" if step == 5 else "Suivant"
-        st.button(label, on_click=_go_next_cb, key=f"pv_next_{step}", type="primary", use_container_width=True)
+    with c3:
+        if step == 5:
+            if st.button("Valider", key=f"pv_next_{step}", type="primary", use_container_width=True):
+                st.session_state.pv_state = "pending"
+                st.rerun()
+        else:
+            st.button("Suivant", on_click=_go_next_cb, key=f"pv_next_{step}", type="primary", use_container_width=True)
 
 
 # ── Recommendation generation ─────────────────────────────────────────────────
@@ -525,7 +531,7 @@ def _render_pv_results():
 
     if summary_parts:
         st.markdown(
-            "<div style='color:#666; font-size:0.85rem; margin-bottom:0.8rem;'>"
+            "<div style='color:#666; font-size:0.85rem; margin-bottom:0.8rem; padding:0 4%;'>"
             + " &middot; ".join(summary_parts) + "</div>",
             unsafe_allow_html=True,
         )
@@ -608,20 +614,19 @@ def _render_pour_vous(db, tmdb):
     state = st.session_state.pv_state
 
     # Section title — matches existing row-title style (blue bar + bold text)
-    title_text = "Recommandations personnalisées"
-    st.markdown(f"""
+    st.markdown("""
     <div style="
         display:flex; align-items:center; gap:10px;
-        margin: 0.6rem 0 1rem 0;
+        margin: 0.6rem 0 0.6rem 0;
         padding: 0 4%;
     ">
         <div style="width:4px; height:1.2rem; background:#38bdf8; border-radius:2px; flex-shrink:0;"></div>
-        <span style="font-size:1.4rem; font-weight:700; color:#FFFFFF;">{title_text}</span>
+        <span style="font-size:1.4rem; font-weight:700; color:#FFFFFF;">Recommandations personnalisées</span>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Idle ──────────────────────────────────────────────────────────────────
-    if state == "idle":
+    # ── Idle / Questionnaire — show CTA, dialog opens on top ─────────────────
+    if state in ("idle", "questionnaire"):
         st.markdown(
             "<p style='color:#888; font-size:0.95rem; margin:0 0 1rem 0; padding:0 4%;'>"
             "Obtenez des suggestions basées sur vos goûts, vos artistes favoris et les films que vous avez vus."
@@ -635,9 +640,9 @@ def _render_pour_vous(db, tmdb):
                 st.session_state.pv_step = 1
                 st.rerun()
 
-    # ── Questionnaire ─────────────────────────────────────────────────────────
-    elif state == "questionnaire":
-        _render_questionnaire(tmdb)
+        # Open dialog overlay when in questionnaire state
+        if state == "questionnaire":
+            _questionnaire_dialog(tmdb)
 
     # ── Pending (generating) ──────────────────────────────────────────────────
     elif state == "pending":
