@@ -30,12 +30,18 @@ def get_bq_client():
 def run_query(sql: str):
     """
     Executes a SQL query on BigQuery, printing the query to the terminal first.
+    Uses the jobs API (not Storage API) to avoid needing bigquery.readsessions.create.
     """
     print("\n" + "="*80)
     print("EXECUTING BIGQUERY SQL:")
     print(sql)
     print("="*80 + "\n")
-    
+
+    import pandas as pd
     client = get_bq_client()
     query_job = client.query(sql)
-    return query_job.result().to_dataframe()
+    rows = list(query_job.result())
+    if not rows:
+        return pd.DataFrame()
+    # Build DataFrame from Row objects (no Storage API needed)
+    return pd.DataFrame([dict(r) for r in rows])

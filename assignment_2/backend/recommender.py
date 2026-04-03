@@ -1,5 +1,5 @@
 from db import run_query, RATINGS_TABLE, MOVIES_TABLE, MODEL_NAME
-from tmdb import fetch_movie_popularity, fetch_person_movie_tmdb_ids
+from tmdb import fetch_movie_popularity
 from utils import normalize_title
 from typing import List, Dict, Any, Optional
 import requests, os
@@ -11,12 +11,13 @@ TMDB_BASE    = "https://api.themoviedb.org/3"
 # ── Public entry point ────────────────────────────────────────────────────────
 
 def get_recommendations(
-    liked_movie_ids:  List[int],
-    genres:           Optional[List[str]] = None,
-    year_min:         Optional[int]       = None,
-    year_max:         Optional[int]       = None,
-    person_tmdb_ids:  Optional[List[int]] = None,
-    n:                int                 = 10,
+    liked_movie_ids:    List[int],
+    genres:             Optional[List[str]] = None,
+    year_min:           Optional[int]       = None,
+    year_max:           Optional[int]       = None,
+    person_tmdb_ids:    Optional[List[int]] = None,
+    excluded_movie_ids: Optional[List[int]] = None,
+    n:                  int                 = 10,
 ) -> List[Dict[str, Any]]:
     """
     Enriched recommendation engine.
@@ -31,6 +32,9 @@ def get_recommendations(
     """
 
     # ── 1. Expand seed movie_ids from preferences ─────────────────────────────
+    # Movies to exclude from output (watched films)
+    excluded = set(excluded_movie_ids or []) | set(liked_movie_ids)
+
     seed_ids = set(liked_movie_ids)
 
     if genres:
@@ -50,14 +54,14 @@ def get_recommendations(
 
     # ── 3. Run BQML → SQL fallback → global fallback ──────────────────────────
     try:
-        results = _bqml(seed_ids, liked_movie_ids, genre_filter, year_filter, n)
+        results = _bqml(seed_ids, excluded, genre_filter, year_filter, n)
         if results:
             return enrich_with_tmdb(results)
     except Exception as e:
         print(f"[RECOMMENDER] BQML failed: {e}")
 
     try:
-        results = _sql_collaborative(seed_ids, liked_movie_ids, genre_filter, year_filter, n)
+        results = _sql_collaborative(seed_ids, excluded, genre_filter, year_filter, n)
         if results:
             return enrich_with_tmdb(results)
     except Exception as e:

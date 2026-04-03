@@ -46,21 +46,23 @@ def handle_autocomplete():
 def handle_recommend():
     """Recommendation endpoint."""
     data = request.json or {}
-    movie_ids       = data.get("movie_ids", [])
-    genres          = data.get("genres") or None
-    year_min        = data.get("year_min") or None
-    year_max        = data.get("year_max") or None
-    person_tmdb_ids = data.get("person_tmdb_ids") or None
-    n               = int(data.get("n", 10))
+    movie_ids           = data.get("movie_ids", [])
+    genres              = data.get("genres") or None
+    year_min            = data.get("year_min") or None
+    year_max            = data.get("year_max") or None
+    person_tmdb_ids     = data.get("person_tmdb_ids") or None
+    excluded_movie_ids  = data.get("excluded_movie_ids") or None
+    n                   = int(data.get("n", 10))
 
     try:
         recommendations = get_recommendations(
-            liked_movie_ids = movie_ids,
-            genres          = genres,
-            year_min        = year_min,
-            year_max        = year_max,
-            person_tmdb_ids = person_tmdb_ids,
-            n               = n,
+            liked_movie_ids    = movie_ids,
+            genres             = genres,
+            year_min           = year_min,
+            year_max           = year_max,
+            person_tmdb_ids    = person_tmdb_ids,
+            excluded_movie_ids = excluded_movie_ids,
+            n                  = n,
         )
         return jsonify(recommendations), 200
     except Exception as e:
