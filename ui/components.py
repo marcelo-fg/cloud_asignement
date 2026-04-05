@@ -5,18 +5,23 @@ ui/components.py – Shared UI components and HTML builders
 from __future__ import annotations
 import re
 
-def _normalize_title(title: str) -> str:
-    """'Matrix, The (1999)' → 'The Matrix'"""
-    if not title:
-        return title
-    title = re.sub(r"\s*\(\d{4}\)\s*$", "", title).strip()
-    m = re.search(r",\s*(The|A|An)$", title, re.IGNORECASE)
-    if m:
-        return f"{m.group(1)} {title[:m.start()].strip()}"
+def format_title(title: str) -> str:
+    """Reformat titles stored as 'Matrix, The (1999)' to 'The Matrix (1999)'."""
+    if not isinstance(title, str) or not title:
+        return str(title)
+    match = re.search(r', (The|A|An|La|Le|Les|L\')(\s*\(.*\))?$', title, re.IGNORECASE)
+    if match:
+        article = match.group(1)
+        year_part = match.group(2) or ''
+        base = title[:match.start()]
+        if article.lower() == "l'":
+            return f"{article}{base}{year_part}"
+        return f"{article} {base}{year_part}"
     return title
 
 def build_tmdb_card(title: str, release_year: str | int, avg_rating_str: str | float, poster_url: str, tmdb_id: str | int, from_page: str = "", artist_id: str | int = "") -> str:
     """Build a Netflix/TMDB-style movie card (HTML)."""
+    title = format_title(title)
     try:
         avg_r = float(avg_rating_str)
     except (ValueError, TypeError):
@@ -27,9 +32,8 @@ def build_tmdb_card(title: str, release_year: str | int, avg_rating_str: str | f
     
     # Rating colors: Green > 70%, Yellow > 40%, Red otherwise
     rating_color = "#21d07a" if rating_percent >= 70 else "#d2d531" if rating_percent >= 40 else "#db2360"
-    formatted_date = f"Jan 01, {release_year}" if release_year else "N/A"
+    formatted_date = str(release_year) if release_year else "N/A"
     
-    title = _normalize_title(title)
     url = f"/?page=movie&movie_id={tmdb_id}"
     if from_page:
         url += f"&from={from_page}"

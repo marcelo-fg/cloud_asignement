@@ -1,235 +1,551 @@
 """
-ui/recommend.py – Personalized recommendation page (two-step flow)
-
-Step 1 – Onboarding: user picks movies they like via ES autocomplete.
-Step 2 – Results: grid of recommended movies from POST /recommend.
+ui/recommend.py – Full-featured recommendation system (MovieLens-style)
+Sections: Film Grid · Search · Your Profile · Preferences · Generate
 """
 
-from __future__ import annotations
-
 import os
-
 import requests
 import streamlit as st
+import api_client as api
+from ui import styles, components
+from streamlit_searchbox import st_searchbox
+import ui.components as comp
 
-from ui import components, styles
+MIN_MOVIES  = 3
+TMDB_BASE   = "https://api.themoviedb.org/3"
+
+# Mood presets: maps a mood label to a list of BigQuery genre strings
+MOOD_PRESETS = {
+    "Detente":    ["Comedy", "Romance", "Animation"],
+    "Action":     ["Action", "Adventure", "Sci-Fi"],
+    "Emotion":    ["Drama", "Romance"],
+    "Suspense":   ["Thriller", "Horror", "Mystery", "Crime"],
+    "Comedie":    ["Comedy"],
+    "Decouverte": ["Documentary"],
+}
+
+ALL_GENRES = [
+    "Action", "Adventure", "Animation", "Children", "Comedy", "Crime",
+    "Documentary", "Drama", "Fantasy", "Horror", "Musical", "Mystery",
+    "Romance", "Sci-Fi", "Thriller", "War", "Western",
+]
+
+SECTION_HEADING = """
+<p style="
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #555;
+    margin: 0 0 6px 0;
+">{label}</p>
+"""
+
+SECTION_DESC = """
+<p style="font-size: 0.85rem; color: #777; margin: 0 0 18px 0; line-height: 1.55;">{desc}</p>
+"""
+
+DIVIDER = "<div style='height:1px; background:rgba(255,255,255,0.06); margin: 40px 0;'></div>"
+SPACER  = lambda px: f"<div style='height:{px}px'></div>"
 
 
-# ── Backend helpers ───────────────────────────────────────────────────────────
-
-def _backend_url() -> str:
+def _tmdb_key() -> str:
     try:
-        return st.secrets.get("BACKEND_URL", os.environ.get("BACKEND_URL", "http://localhost:5001"))
+        k = st.secrets.get("TMDB_API_KEY", "")
+        if k:
+            return str(k)
     except Exception:
-        return os.environ.get("BACKEND_URL", "http://localhost:5001")
+        pass
+    return os.environ.get("TMDB_API_KEY", "")
 
 
-@st.cache_data(ttl=10, show_spinner=False)
-def _fetch_autocomplete(query: str) -> list:
+@st.cache_data(ttl=3600, show_spinner=False)
+def _search_people(query: str) -> list[dict]:
+    key = _tmdb_key()
+    if not key or not query or len(query) < 2:
+        return []
     try:
         r = requests.get(
-            f"{_backend_url()}/autocomplete",
-            params={"q": query},
-            timeout=2,
+            f"{TMDB_BASE}/search/person",
+            params={"api_key": key, "query": query, "language": "fr-FR"},
+            timeout=5,
         )
-        if r.status_code == 200:
-            return r.json()
+        results = r.json().get("results", [])
+        return [
+            {"id": str(p["id"]), "name": p["name"], "role": p.get("known_for_department", "")}
+            for p in results[:6]
+        ]
     except Exception:
-        pass
-    return []
+        return []
 
 
-def _fetch_recommendations(movie_ids: list, n: int = 10) -> list:
+def _section(label: str, desc: str = "") -> None:
+    st.markdown(SECTION_HEADING.format(label=label), unsafe_allow_html=True)
+    if desc:
+        st.markdown(SECTION_DESC.format(desc=desc), unsafe_allow_html=True)
+
+
+def _person_search_func(query: str):
+    if not query or len(query) < 2:
+        return []
+    people = _search_people(query)
+    return [
+        (f"{p['name']} ({p['role']})", f"{p['id']}::::{p['name']}")
+        for p in people
+    ]
+
+def _exclude_search_func(query: str):
+    if not query or len(query) < 2:
+        return []
     try:
-        r = requests.post(
-            f"{_backend_url()}/recommend",
-            json={"movie_ids": movie_ids, "n": n},
-            timeout=15,
-        )
-        if r.status_code == 200:
-            return r.json()
+        suggs = api.autocomplete(query, limit=6)
+        return [
+            (
+                f"{comp.format_title(s['title'])} ({s.get('release_year', '')})",
+                f"{s['movieId']}::::{comp.format_title(s['title'])}",
+            )
+            for s in suggs
+        ]
     except Exception:
-        pass
-    return []
+        return []
 
+def _film_search_func(searchterm: str):
+    if not searchterm or len(searchterm) < 2:
+        return []
+    try:
+        suggs = api.autocomplete(searchterm, limit=8)
+        return [
+            (
+                f"{comp.format_title(s['title'])} ({s.get('release_year', '')})",
+                f"{s['movieId']}::::{comp.format_title(s['title'])}",
+            )
+            for s in suggs
+        ]
+    except Exception:
+        return []
 
-# ── Page render ───────────────────────────────────────────────────────────────
-
-def render(db, qb, tmdb_api):
+def render(db, qb, tmdb):
     styles.render_navbar("recommend")
     st.markdown("<div style='height: 4rem'></div>", unsafe_allow_html=True)
 
-    # Session state initialisation
-    if "rec_selected_movies" not in st.session_state:
-        st.session_state.rec_selected_movies = []  # list of {movieId, title, tmdbId, release_year}
-    if "rec_show_results" not in st.session_state:
-        st.session_state.rec_show_results = False
+    # ── Global CSS ──────────────────────────────────────────────────────────────
+    st.markdown("""
+    <style>
+    button[kind="primary"] {
+        background-color: #01b4e4 !important;
+        color: #000 !important;
+        font-weight: 700 !important;
+        font-size: 1rem !important;
+        height: 52px !important;
+        border-radius: 6px !important;
+        letter-spacing: 0.02em;
+    }
+    div[data-testid="stSlider"] > div { padding-bottom: 0 !important; }
+    div[data-testid="stSlider"] label { display: none !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
-    if st.session_state.rec_show_results:
-        _render_results(tmdb_api)
-    else:
-        _render_onboarding()
+    # ── Session State Init ──────────────────────────────────────────────────────
+    for key, default in [
+        ("taste_profile",     []),
+        ("pending_movie",     None),
+        ("suggestion_movies", None),
+        ("excluded_movies",   []),
+        ("selected_persons",  []),
+        ("selected_mood",     ""),
+        ("recs_result",       None),
+    ]:
+        if key not in st.session_state:
+            st.session_state[key] = default
 
+    # ── Layout ──────────────────────────────────────────────────────────────────
+    _, center_col, _ = st.columns([1, 5, 1])
 
-# ── Step 1: Onboarding ────────────────────────────────────────────────────────
+    with center_col:
 
-def _render_onboarding():
-    st.markdown(
-        "<h1 style='padding: 0 4%;'>Quels films aimez-vous&nbsp;?</h1>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<p style='color:#aaa; padding: 0 4%; margin-bottom:2rem;'>"
-        "Ajoutez des films que vous avez aimés pour obtenir des recommandations personnalisées.</p>",
-        unsafe_allow_html=True,
-    )
+        # ── HERO ────────────────────────────────────────────────────────────────
+        st.markdown("""
+        <div style="text-align:center; padding: 2rem 0 3rem;">
+            <h1 style="margin-bottom: 0.75rem; font-size: 2.4rem;">Recommandations</h1>
+            <p style="color: #999; font-size: 1rem; max-width: 620px; margin: 0 auto; line-height: 1.7;">
+                Notez les films que vous avez vus. Le moteur BigQuery ML analyse
+                vos notes pour identifier des spectateurs au profil identique au vôtre
+                et déduire vos prochains coups de coeur.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    with st.container():
-        st.markdown("<div style='padding: 0 4%;'>", unsafe_allow_html=True)
+        # ── SECTION 1 : FILM GRID ───────────────────────────────────────────────
+        _section(
+            "Films populaires",
+            "Glissez le curseur sous une affiche pour noter le film de 0 à 5. "
+            "Les films notés sont mis en avant par un contour bleu."
+        )
 
-        # ── Search with ES autocomplete ───────────────────────────────────────
-        search_col, _ = st.columns([4, 2])
-        with search_col:
-            ac_query = st.text_input(
-                "Rechercher un film",
-                placeholder="Ex: The Matrix, Inception…",
-                key="rec_ac_query",
-            )
+        if st.session_state.suggestion_movies is None:
+            with st.spinner("Chargement..."):
+                st.session_state.suggestion_movies = api.get_top_movies(limit=16)
 
-        suggestions = []
-        if len(ac_query) >= 2:
-            suggestions = _fetch_autocomplete(ac_query)
+        suggestion_movies = st.session_state.suggestion_movies or []
+        already_rated = {m["id"]: m["rating"] for m in st.session_state.taste_profile}
 
-        selected_suggestion = None
-        if suggestions:
-            labels = ["-- Sélectionner un film --"] + [
-                f"{s['title']} ({s.get('release_year', '')})" for s in suggestions
+        def on_rating_change(movie_id, movie_title, key):
+            rating = st.session_state.get(key, 0.0)
+            st.session_state.taste_profile = [
+                m for m in st.session_state.taste_profile if m["id"] != movie_id
             ]
-            sel_idx = st.selectbox(
-                "Suggestions",
-                options=range(len(labels)),
-                format_func=lambda i: labels[i],
-                key="rec_ac_sel",
-            )
-            if sel_idx > 0:
-                selected_suggestion = suggestions[sel_idx - 1]
+            if rating > 0:
+                st.session_state.taste_profile.append(
+                    {"id": movie_id, "title": movie_title, "rating": rating}
+                )
 
-        add_col, _ = st.columns([2, 4])
-        with add_col:
-            add_disabled = selected_suggestion is None
-            if st.button("Ajouter à ma liste", disabled=add_disabled, key="rec_add_btn"):
-                # Avoid duplicates
-                existing_ids = {m["movieId"] for m in st.session_state.rec_selected_movies}
-                if selected_suggestion["movieId"] not in existing_ids:
-                    st.session_state.rec_selected_movies.append(selected_suggestion)
-                    st.rerun()
+        if suggestion_movies:
+            for row_idx in range(0, len(suggestion_movies), 4):
+                row  = suggestion_movies[row_idx:row_idx + 4]
+                cols = st.columns(4, gap="medium")
+                for i, movie in enumerate(row):
+                    with cols[i]:
+                        m_id   = str(movie.get("movieId", ""))
+                        m_title = comp.format_title(movie.get("title", ""))
+                        poster  = (
+                            movie.get("poster_url")
+                            or "https://via.placeholder.com/300x450/111/444?text=N/A"
+                        )
+                        current_rating = already_rated.get(m_id, 0.0)
+                        is_rated = current_rating > 0
+                        border   = (
+                            "border:2px solid #01b4e4; box-shadow:0 0 12px rgba(1,180,228,0.3);"
+                            if is_rated else "border:2px solid transparent;"
+                        )
 
-        # ── Selected movies chips ─────────────────────────────────────────────
-        selected = st.session_state.rec_selected_movies
-        if selected:
+                        st.markdown(
+                            f"""<div style="border-radius:8px; overflow:hidden; {border}
+                                           margin-bottom:8px; transition:border 0.2s;">
+                                <img src="{poster}" style="width:100%; display:block;"
+                                     title="{m_title}" />
+                            </div>""",
+                            unsafe_allow_html=True,
+                        )
+
+                        st.slider(
+                            " ",
+                            min_value=0.0, max_value=5.0,
+                            value=float(current_rating), step=0.5,
+                            format="%.1f",
+                            key=f"rating_{m_id}",
+                            on_change=on_rating_change,
+                            args=(m_id, m_title, f"rating_{m_id}"),
+                            label_visibility="collapsed",
+                        )
+
+        st.markdown(DIVIDER, unsafe_allow_html=True)
+
+        # ── SECTION 2 : ADD OTHER FILMS ─────────────────────────────────────────
+        _section(
+            "Ajouter d'autres films",
+            "Vous ne trouvez pas un film dans la grille ? Recherchez-le ici pour le noter."
+        )
+
+        selected_raw = st_searchbox(
+            _film_search_func,
+            key="rec_searchbox",
+            placeholder="Titre d'un film...",
+            label=None,
+            clear_on_submit=True,
+            default_use_searchterm=False,
+            style_absolute=False,
+        )
+
+        if selected_raw:
+            m_id, m_title = selected_raw.split("::::")
+            if any(m["id"] == m_id for m in st.session_state.taste_profile):
+                st.toast("Ce film est déjà dans votre profil.")
+            else:
+                st.session_state.pending_movie = {"id": m_id, "title": m_title}
+
+        if st.session_state.pending_movie:
+            pm = st.session_state.pending_movie
+            st.markdown(SPACER(16), unsafe_allow_html=True)
             st.markdown(
-                "<p style='margin-top:1.5rem; font-weight:700; font-size:1rem;'>Films sélectionnés :</p>",
+                f"<p style='color:#ccc; font-size:0.9rem; margin-bottom:8px;'>"
+                f"Note pour <strong>{pm['title']}</strong></p>",
                 unsafe_allow_html=True,
             )
-            chips_html = " ".join(
-                f"<span style='"
-                f"display:inline-block; background:rgba(1,180,228,0.15); border:1px solid #01b4e4;"
-                f"border-radius:20px; padding:4px 14px; margin:4px; font-size:0.9rem; color:#01b4e4;"
-                f"'>{m['title']} ({m.get('release_year', '')})</span>"
-                for m in selected
+            pc1, pc2, pc3 = st.columns([5, 1.4, 1.4], vertical_alignment="bottom")
+            with pc1:
+                pending_rating = st.slider(
+                    "Note", min_value=0.5, max_value=5.0, value=3.0,
+                    step=0.5, format="%.1f",
+                    label_visibility="collapsed", key="pending_slider",
+                )
+            with pc2:
+                if st.button("Annuler", use_container_width=True, key="cancel_pending"):
+                    st.session_state.pending_movie = None
+                    st.rerun()
+            with pc3:
+                if st.button("Valider", type="primary", use_container_width=True, key="validate_pending"):
+                    st.session_state.taste_profile.append(
+                        {"id": pm["id"], "title": pm["title"], "rating": float(pending_rating)}
+                    )
+                    st.session_state.pending_movie = None
+                    st.rerun()
+
+        st.markdown(DIVIDER, unsafe_allow_html=True)
+
+        # ── SECTION 3 : PROFILE DISPLAY ─────────────────────────────────────────
+        movies_count = len(st.session_state.taste_profile)
+        _section(
+            f"Votre profil  —  {movies_count} film(s) note(s)",
+            f"Minimum {MIN_MOVIES} films requis pour lancer l'analyse. "
+            "Cliquez sur un film pour modifier sa note ou le retirer."
+        )
+
+        if st.session_state.taste_profile:
+            def chunks(lst, n):
+                for i in range(0, len(lst), n):
+                    yield lst[i:i + n]
+
+            for row_movies in chunks(st.session_state.taste_profile, 4):
+                cols = st.columns(4)
+                for i, p in enumerate(row_movies):
+                    with cols[i]:
+                        label = f"{p['title']}   {p['rating']:.1f}/5   x"
+                        if st.button(label, key=f"del_{p['id']}", use_container_width=True):
+                            st.session_state.taste_profile = [
+                                m for m in st.session_state.taste_profile if m["id"] != p["id"]
+                            ]
+                            st.rerun()
+        else:
+            st.markdown(
+                "<p style='color:#555; font-style:italic; font-size:0.88rem;'>"
+                "Aucun film note pour l'instant.</p>",
+                unsafe_allow_html=True,
             )
-            st.markdown(chips_html, unsafe_allow_html=True)
 
-            # Per-movie remove buttons
-            remove_cols = st.columns(min(len(selected), 6))
-            for i, movie in enumerate(selected):
-                with remove_cols[i % len(remove_cols)]:
-                    if st.button(f"✖ {movie['title'][:20]}", key=f"rec_rm_{movie['movieId']}"):
-                        st.session_state.rec_selected_movies = [
-                            m for m in st.session_state.rec_selected_movies
-                            if m["movieId"] != movie["movieId"]
-                        ]
-                        st.rerun()
+        st.markdown(DIVIDER, unsafe_allow_html=True)
 
-        # ── CTA ───────────────────────────────────────────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
-        cta_col, _ = st.columns([2, 4])
-        with cta_col:
-            if st.button("Voir mes recommandations ➜", key="rec_go_btn"):
-                st.session_state.rec_show_results = True
-                st.rerun()
+        # ── SECTION 4 : PREFERENCES ─────────────────────────────────────────────
+        _section(
+            "Preferences du moment",
+            "Ces criteres sont optionnels. Ils filtrent et orientent les resultats "
+            "produits par l'IA selon votre envie du moment."
+        )
 
-        st.markdown("</div>", unsafe_allow_html=True)
+        # 4-A  Mood ──────────────────────────────────────────────────────────────
+        st.markdown(SECTION_HEADING.format(label="Humeur"), unsafe_allow_html=True)
+        st.markdown(SPACER(6),  unsafe_allow_html=True)
 
+        mood_options = [""] + list(MOOD_PRESETS.keys())
+        mood_labels  = ["Pas de preference"] + list(MOOD_PRESETS.keys())
+        mood_cols    = st.columns(len(mood_options))
+        for i, mood in enumerate(mood_options):
+            with mood_cols[i]:
+                active = st.session_state.selected_mood == mood
+                if st.button(
+                    mood_labels[i],
+                    key=f"mood_{i}",
+                    use_container_width=True,
+                    type="primary" if active else "secondary",
+                ):
+                    st.session_state.selected_mood = mood
+                    st.rerun()
 
-# ── Step 2: Results ───────────────────────────────────────────────────────────
+        st.markdown(SPACER(28), unsafe_allow_html=True)
 
-def _render_results(tmdb_api):
-    st.markdown(
-        "<h1 style='padding: 0 4%;'>Vos recommandations</h1>",
-        unsafe_allow_html=True,
-    )
-
-    selected = st.session_state.rec_selected_movies
-    movie_ids = [m["movieId"] for m in selected]
-
-    # Back button
-    back_col, _ = st.columns([2, 5])
-    with back_col:
-        if st.button("← Modifier mes préférences", key="rec_back_btn"):
-            st.session_state.rec_show_results = False
-            st.rerun()
-
-    # Selected movies summary
-    if selected:
-        titles = ", ".join(m["title"] for m in selected)
+        # 4-B  Genres ────────────────────────────────────────────────────────────
+        st.markdown(SECTION_HEADING.format(label="Genres specifiques"), unsafe_allow_html=True)
         st.markdown(
-            f"<p style='color:#aaa; padding: 0 4%; margin-bottom:1.5rem;'>"
-            f"Basé sur : <em>{titles}</em></p>",
+            SECTION_DESC.format(
+                desc="Optionnel. Cumulatif avec l'humeur choisie ci-dessus."
+            ),
+            unsafe_allow_html=True,
+        )
+        selected_genres = st.multiselect("Genres", ALL_GENRES, label_visibility="collapsed")
+
+        st.markdown(SPACER(24), unsafe_allow_html=True)
+
+        # 4-C  Period ────────────────────────────────────────────────────────────
+        st.markdown(SECTION_HEADING.format(label="Periode de sortie"), unsafe_allow_html=True)
+        st.markdown(SPACER(6), unsafe_allow_html=True)
+        years = st.slider("Periode", min_value=1900, max_value=2024,
+                          value=(1980, 2024), label_visibility="collapsed")
+
+        st.markdown(SPACER(28), unsafe_allow_html=True)
+
+        # 4-D  Actor / Director ──────────────────────────────────────────────────
+        st.markdown(SECTION_HEADING.format(label="Acteur ou realisateur"), unsafe_allow_html=True)
+        st.markdown(
+            SECTION_DESC.format(
+                desc="Les films impliquant cet artiste seront privileges dans les recommandations."
+            ),
             unsafe_allow_html=True,
         )
 
-    with st.spinner("Calcul de vos recommandations…"):
-        if movie_ids:
-            recs = _fetch_recommendations(movie_ids, n=10)
-        else:
-            recs = []
-
-    if not recs:
-        st.info("Aucune recommandation disponible. Essayez d'ajouter d'autres films.")
-        return
-
-    # Build grid of TMDB-style cards (reuse existing component)
-    import pandas as pd
-
-    cards_html = ""
-    for rec in recs:
-        tmdb_id = rec.get("tmdbId") or rec.get("tmdb_id")
-        poster = rec.get("poster_url") or ""
-        if not poster and tmdb_id:
-            pop = tmdb_api.fetch_movie_popularity(tmdb_id)
-            poster = pop.get("poster_url", "") if pop else ""
-        if not poster:
-            safe_title = str(rec.get("title", "")).replace(" ", "+")
-            poster = f"https://placehold.co/500x750/e3e3e3/9e9e9e?text={safe_title}"
-
-        avg_r = float(rec.get("avg_pred") or rec.get("avg_rating") or 0)
-        year = str(rec.get("release_year", ""))
-        cards_html += components.build_tmdb_card(
-            title=rec.get("title", ""),
-            release_year=year,
-            avg_rating_str=avg_r,
-            poster_url=poster,
-            tmdb_id=tmdb_id or "",
-            from_page="recommend",
+        selected_person_raw = st_searchbox(
+            _person_search_func,
+            key="person_searchbox",
+            placeholder="Nom d'un acteur ou realisateur...",
+            label=None,
+            clear_on_submit=True,
+            default_use_searchterm=False,
+            style_absolute=False,
         )
 
-    st.markdown(
-        f"""
-<div style="padding: 0 4%; font-family: 'Source Sans Pro', Arial, sans-serif;">
-<style>.rec-grid {{ display:grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap:20px; }}</style>
-<div class="rec-grid">{cards_html}</div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
+        if selected_person_raw:
+            p_id, p_name = selected_person_raw.split("::::")
+            if not any(p["id"] == p_id for p in st.session_state.selected_persons):
+                st.session_state.selected_persons.append({"id": p_id, "name": p_name})
+
+        if st.session_state.selected_persons:
+            st.markdown(SPACER(10), unsafe_allow_html=True)
+            pcols = st.columns(min(len(st.session_state.selected_persons), 4))
+            for i, person in enumerate(st.session_state.selected_persons[:4]):
+                with pcols[i]:
+                    if st.button(
+                        f"{person['name']}   x",
+                        key=f"del_person_{person['id']}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.selected_persons = [
+                            p for p in st.session_state.selected_persons
+                            if p["id"] != person["id"]
+                        ]
+                        st.rerun()
+
+        st.markdown(SPACER(28), unsafe_allow_html=True)
+
+        # 4-E  Films to exclude ──────────────────────────────────────────────────
+        st.markdown(SECTION_HEADING.format(label="Films a exclure"), unsafe_allow_html=True)
+        st.markdown(
+            SECTION_DESC.format(
+                desc="Films que vous avez deja vus et ne souhaitez pas voir recommandes."
+            ),
+            unsafe_allow_html=True,
+        )
+
+        excluded_raw = st_searchbox(
+            _exclude_search_func,
+            key="exclude_searchbox",
+            placeholder="Titre d'un film a exclure...",
+            label=None,
+            clear_on_submit=True,
+            default_use_searchterm=False,
+            style_absolute=False,
+        )
+
+        if excluded_raw:
+            ex_id, ex_title = excluded_raw.split("::::")
+            if not any(m["id"] == ex_id for m in st.session_state.excluded_movies):
+                st.session_state.excluded_movies.append({"id": ex_id, "title": ex_title})
+
+        if st.session_state.excluded_movies:
+            st.markdown(SPACER(10), unsafe_allow_html=True)
+            exc_cols = st.columns(min(len(st.session_state.excluded_movies), 4))
+            for i, exm in enumerate(st.session_state.excluded_movies[:4]):
+                with exc_cols[i]:
+                    if st.button(
+                        f"{exm['title']}   x",
+                        key=f"del_ex_{exm['id']}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.excluded_movies = [
+                            m for m in st.session_state.excluded_movies if m["id"] != exm["id"]
+                        ]
+                        st.rerun()
+
+        st.markdown(DIVIDER, unsafe_allow_html=True)
+
+        # ── SECTION 5 : GENERATE ────────────────────────────────────────────────
+        movies_count = len(st.session_state.taste_profile)
+        can_generate = movies_count >= MIN_MOVIES
+
+        if not can_generate:
+            remaining = MIN_MOVIES - movies_count
+            st.markdown(
+                f"<p style='color:#888; font-size:0.88rem; text-align:center; margin-bottom:16px;'>"
+                f"Notez encore <strong style='color:#e8e8e8;'>{remaining} film(s)</strong> "
+                f"pour pouvoir lancer l'analyse.</p>",
+                unsafe_allow_html=True,
+            )
+
+        generate_btn = st.button(
+            "Generer mes Recommandations",
+            type="primary",
+            use_container_width=True,
+            disabled=not can_generate,
+        )
+
+        st.markdown(SPACER(60), unsafe_allow_html=True)
+
+        # ── RESULTS ─────────────────────────────────────────────────────────────
+        if generate_btn and can_generate:
+            st.session_state.recs_result = None  # reset previous
+            with st.spinner("Analyse en cours — identification des profils similaires..."):
+                selected_ratings = {str(m["id"]): float(m["rating"]) for m in st.session_state.taste_profile}
+
+                # Merge mood genres + explicit genre selection
+                mood_genres     = MOOD_PRESETS.get(st.session_state.selected_mood, [])
+                merged_genres   = list(set(mood_genres + selected_genres)) or None
+
+                y_min, y_max    = years
+                person_ids      = [int(p["id"]) for p in st.session_state.selected_persons]
+                excluded_ids    = [int(m["id"]) for m in st.session_state.excluded_movies]
+
+                recs = api.get_recommendations(
+                    movie_ratings      = selected_ratings,
+                    genres             = merged_genres,
+                    year_min           = y_min if y_min > 1900 else None,
+                    year_max           = y_max if y_max < 2024 else None,
+                    person_tmdb_ids    = person_ids or None,
+                    excluded_movie_ids = excluded_ids or None,
+                    n                  = 12,
+                )
+                st.session_state.recs_result = recs
+
+        if st.session_state.recs_result:
+            recs = st.session_state.recs_result
+            st.markdown(
+                "<h3 style='margin-bottom:24px; color:#e8e8e8; font-size:1.2rem;'>"
+                "Resultats de l'analyse</h3>",
+                unsafe_allow_html=True,
+            )
+
+            grid_html = ""
+            for m in recs:
+                title    = m.get("title", "Unknown")
+                year     = str(m.get("release_year", ""))
+                poster   = m.get("poster_url") or "https://via.placeholder.com/500x750/111/444?text=N/A"
+                tmdb_id  = m.get("tmdbId", "")
+
+                # Rating display priority:
+                # 1. community_rating = real avg from global ratings table (0-5, always correct)
+                # 2. avg_rating       = SQL collaborative avg (0-5, correct)
+                # 3. Never use avg_pred — it's a raw inner product from ML.RECOMMEND (can be 40+)
+                score_val = m.get("community_rating") or m.get("avg_rating") or 0
+                try:
+                    sf = float(score_val)
+                    rating_fmt = f"{sf:.1f}"
+                except (ValueError, TypeError):
+                    rating_fmt = "N/A"
+
+                card = components.build_tmdb_card(
+                    title, year, rating_fmt, poster, tmdb_id, from_page="recommend"
+                )
+                grid_html += (
+                    f'<div style="flex:0 0 16%; min-width:180px; max-width:240px;'
+                    f' margin-bottom:24px;">{card}</div>'
+                )
+
+            st.markdown(
+                f'<div style="display:flex; flex-wrap:wrap; gap:20px; justify-content:center;">'
+                f'{grid_html}</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(SPACER(40), unsafe_allow_html=True)
+
+        elif st.session_state.recs_result is not None and len(st.session_state.recs_result) == 0:
+            st.warning(
+                "Aucun film trouve avec ces criteres. "
+                "Essayez d'elargir la periode, de reduire les filtres de genre "
+                "ou d'ajouter d'autres films a votre profil."
+            )

@@ -41,3 +41,4 @@ elif page == "recommend":
     recommend.render(db, qb, tmdb)
 else:
     home.render(db, qb, tmdb)
+
