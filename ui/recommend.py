@@ -200,43 +200,68 @@ def render(db, qb, tmdb):
                 )
 
         if suggestion_movies:
-            for row_idx in range(0, len(suggestion_movies), 4):
-                row  = suggestion_movies[row_idx:row_idx + 4]
-                cols = st.columns(4, gap="medium")
-                for i, movie in enumerate(row):
-                    with cols[i]:
-                        m_id   = str(movie.get("movieId", ""))
-                        m_title = comp.format_title(movie.get("title", ""))
-                        poster  = (
-                            movie.get("poster_url")
-                            or "https://via.placeholder.com/300x450/111/444?text=N/A"
-                        )
-                        current_rating = already_rated.get(m_id, 0.0)
-                        is_rated = current_rating > 0
-                        border   = (
-                            "border:2px solid #01b4e4; box-shadow:0 0 12px rgba(1,180,228,0.3);"
-                            if is_rated else "border:2px solid transparent;"
-                        )
+            PAGE_SIZE = 4
+            total_pages = (len(suggestion_movies) + PAGE_SIZE - 1) // PAGE_SIZE
+            if "popular_page" not in st.session_state:
+                st.session_state.popular_page = 0
 
-                        st.markdown(
-                            f"""<div style="border-radius:8px; overflow:hidden; {border}
-                                           margin-bottom:8px; transition:border 0.2s;">
-                                <img src="{poster}" style="width:100%; display:block;"
-                                     title="{m_title}" />
-                            </div>""",
-                            unsafe_allow_html=True,
-                        )
+            page = st.session_state.popular_page
+            start = page * PAGE_SIZE
+            row   = suggestion_movies[start:start + PAGE_SIZE]
 
-                        st.slider(
-                            " ",
-                            min_value=0.0, max_value=5.0,
-                            value=float(current_rating), step=0.5,
-                            format="%.1f",
-                            key=f"rating_{m_id}",
-                            on_change=on_rating_change,
-                            args=(m_id, m_title, f"rating_{m_id}"),
-                            label_visibility="collapsed",
-                        )
+            cols = st.columns(4, gap="medium")
+            for i, movie in enumerate(row):
+                with cols[i]:
+                    m_id    = str(movie.get("movieId", ""))
+                    m_title = comp.format_title(movie.get("title", ""))
+                    poster  = (
+                        movie.get("poster_url")
+                        or "https://via.placeholder.com/300x450/111/444?text=N/A"
+                    )
+                    current_rating = already_rated.get(m_id, 0.0)
+                    is_rated = current_rating > 0
+                    border   = (
+                        "border:2px solid #01b4e4; box-shadow:0 0 12px rgba(1,180,228,0.3);"
+                        if is_rated else "border:2px solid transparent;"
+                    )
+
+                    st.markdown(
+                        f"""<div style="border-radius:8px; overflow:hidden; {border}
+                                       margin-bottom:8px; transition:border 0.2s;">
+                            <img src="{poster}" style="width:100%; display:block;"
+                                 title="{m_title}" />
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
+
+                    st.slider(
+                        " ",
+                        min_value=0.0, max_value=5.0,
+                        value=float(current_rating), step=0.5,
+                        format="%.1f",
+                        key=f"rating_{m_id}",
+                        on_change=on_rating_change,
+                        args=(m_id, m_title, f"rating_{m_id}"),
+                        label_visibility="collapsed",
+                    )
+
+            # Pagination controls
+            st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+            nav_cols = st.columns([1, 3, 1])
+            with nav_cols[0]:
+                if st.button("◀ Précédent", disabled=(page == 0), use_container_width=True, key="popular_prev"):
+                    st.session_state.popular_page -= 1
+                    st.rerun()
+            with nav_cols[1]:
+                st.markdown(
+                    f"<p style='text-align:center; color:#555; font-size:0.8rem; margin:8px 0;'>"
+                    f"{page + 1} / {total_pages}</p>",
+                    unsafe_allow_html=True,
+                )
+            with nav_cols[2]:
+                if st.button("Suivant ▶", disabled=(page >= total_pages - 1), use_container_width=True, key="popular_next"):
+                    st.session_state.popular_page += 1
+                    st.rerun()
 
         st.markdown(DIVIDER, unsafe_allow_html=True)
 
