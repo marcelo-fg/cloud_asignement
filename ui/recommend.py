@@ -510,7 +510,7 @@ def render(db, qb, tmdb):
                 unsafe_allow_html=True,
             )
 
-            grid_html = ""
+            cards_html = ""
             for m in recs:
                 title    = m.get("title", "Unknown")
                 year     = str(m.get("release_year", ""))
@@ -531,16 +531,38 @@ def render(db, qb, tmdb):
                 card = components.build_tmdb_card(
                     title, year, rating_fmt, poster, tmdb_id, from_page="recommend"
                 )
-                grid_html += (
-                    f'<div style="flex:0 0 16%; min-width:180px; max-width:240px;'
-                    f' margin-bottom:24px;">{card}</div>'
-                )
+                cards_html += f'<div style="flex:0 0 auto; width:200px;">{card}</div>'
 
-            st.markdown(
-                f'<div style="display:flex; flex-wrap:wrap; gap:20px; justify-content:center;">'
-                f'{grid_html}</div>',
-                unsafe_allow_html=True,
-            )
+            carousel_html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  {styles.get_css()}
+  <style>
+    body {{ background: transparent; margin: 0; padding: 0; overflow-x: hidden; }}
+  </style>
+</head>
+<body>
+<div class="carousel-wrapper">
+  <button class="scroll-btn left" onclick="slideLeft(this)">&#10094;</button>
+  <div class="posters-container">
+    {cards_html}
+  </div>
+  <button class="scroll-btn right" onclick="slideRight(this)">&#10095;</button>
+</div>
+<script>
+function slideLeft(btn) {{
+  const c = btn.parentElement.querySelector('.posters-container');
+  c.scrollBy({{ left: -c.clientWidth * 0.8, behavior: 'smooth' }});
+}}
+function slideRight(btn) {{
+  const c = btn.parentElement.querySelector('.posters-container');
+  c.scrollBy({{ left: c.clientWidth * 0.8, behavior: 'smooth' }});
+}}
+</script>
+</body>
+</html>"""
+            st.components.v1.html(carousel_html, height=420, scrolling=False)
             st.markdown(SPACER(40), unsafe_allow_html=True)
 
         elif st.session_state.recs_result is not None and len(st.session_state.recs_result) == 0:
