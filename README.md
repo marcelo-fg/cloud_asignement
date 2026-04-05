@@ -1,166 +1,196 @@
-# MovieFinder — Cloud & Advanced Analytics Assignment 1
+# MovieFinder — Cloud & Advanced Analytics Assignment 2
 
-A Streamlit web application that queries a **Google BigQuery** movie database with dynamic SQL filters, and enriches results with movie posters, overviews, and cast information from **The Movie Database (TMDB) API**.
-
-## Live Demo
-
-> **[https://moviefinder-262418330780.europe-west6.run.app](https://moviefinder-262418330780.europe-west6.run.app)**
-
-Deployed on **Google Cloud Run** (europe-west6 / Zürich) — publicly accessible, no login required.
+Application de recommandation de films en architecture **2-tiers** :
+**Streamlit** (frontend) + **Flask REST API** (backend), déployés sur **Google Cloud Run**.
 
 ---
 
+## Live
 
+| Service | URL |
+|---------|-----|
+| 🎬 Frontend | https://movie-frontend-262418330780.us-central1.run.app |
+| ⚙️ Backend API | https://movie-backend-262418330780.us-central1.run.app |
+
+---
 
 ## Architecture
 
 ```
-app.py              ← Streamlit UI + logic layer
-├── db.py           ← BigQuery client + query runner (prints SQL + exec time to terminal)
-├── query_builder.py ← Pure SQL builder functions (no BigQuery calls)
-└── tmdb.py         ← TMDB API fetch + caching
+Utilisateur
+ └─► Streamlit Frontend  (Cloud Run)
+          │  REST JSON
+          ▼
+     Flask Backend  (Cloud Run :8080)
+       ├── BigQuery ML  (matrix_factorization — recommandations personnalisées)
+       ├── Elastic Cloud (autocomplete search-as-you-type)
+       └── TMDB API      (posters + métadonnées films)
+```
+
+Le frontend **ne communique jamais directement** avec BigQuery ou Elasticsearch — tout passe par l'API Flask.
+
+---
+
+## Fonctionnalités
+
+| Fonctionnalité | Implémentation |
+|----------------|----------------|
+| Autocomplete | Elasticsearch `search_as_you_type` |
+| Recommandations personnalisées | BigQuery ML `matrix_factorization` via utilisateurs similaires |
+| Fallback SQL collaboratif | Agrégation des films des users similaires si BQML échoue |
+| Fallback global | Top films les mieux notés (≥ 50 votes) si aucun film sélectionné |
+| Posters | TMDB API (`/movie/{tmdbId}`) |
+| Transparence SQL | Toutes les requêtes BigQuery affichées dans le terminal |
+
+---
+
+## Structure du projet
+
+```
+cloud_asignement/
+├── Dockerfile              ← Frontend (Streamlit) → Cloud Run
+├── app.py                  ← Entrypoint Streamlit
+├── db.py                   ← Client BigQuery (frontend)
+├── query_builder.py        ← Générateur SQL dynamique
+├── tmdb.py                 ← Client TMDB API (frontend)
+├── requirements.txt        ← Dépendances frontend
+├── ui/                     ← Composants UI Streamlit
+│   ├── home.py             ← Page d'accueil (Top 10, carousels genre/décennie)
+│   ├── recommend.py        ← Page recommandations (cold-start pipeline)
+│   ├── search.py           ← Recherche avancée avec filtres
+│   ├── people.py           ← Recherche d'artistes (acteurs/réalisateurs)
+│   ├── movie.py            ← Page détail film
+│   ├── components.py       ← Cards HTML réutilisables
+│   └── styles.py           ← Thème Netflix (CSS global)
+│
+├── backend/                ← Flask REST API → Cloud Run
+│   ├── Dockerfile
+│   ├── app.py              ← Routes (/autocomplete, /recommend, /movies/popular)
+│   ├── recommender.py      ← Moteur de recommandation (cascade 3 niveaux)
+│   ├── db.py               ← Client BigQuery (backend)
+│   ├── es_client.py        ← Client Elasticsearch
+│   ├── tmdb.py             ← Client TMDB API (backend)
+│   ├── index_movies.py     ← Script d'indexation Elasticsearch
+│   ├── train_model.sql     ← CREATE MODEL BigQuery ML
+│   ├── utils.py            ← Normalisation des titres
+│   └── requirements.txt
+│
+├── docker-compose.yml      ← Lancement local complet
+├── .env.example            ← Template variables d'environnement
+├── train_model.py          ← Script entraînement BQML
+├── deploy.sh               ← Script déploiement Cloud Run
+├── scripts/
+│   └── upload_data.py      ← Import données MovieLens → BigQuery
+└── tests/
+    ├── test_query_builder.py
+    └── test_tmdb.py
 ```
 
 ---
 
-## Features
+## Méthode de recommandation — Cold-Start
 
-| Feature | SQL Implementation |
-|---|---|
-| Title autocomplete | `WHERE LOWER(title) LIKE LOWER('%query%') LIMIT 10` |
-| Language filter | `WHERE language = 'en'` |
-| Genre filter (pipe-separated) | `WHERE genres LIKE 'Action|%' OR genres LIKE '%|Action|%' ...` |
-| Avg. rating filter | `JOIN ratings GROUP BY … HAVING AVG(rating) >= threshold` |
-| Release year filter | `WHERE release_year >= 2000` |
-| Advanced combos | All filters combined with `AND` clauses dynamically |
-| SQL transparency | Printed to terminal (with exec time) + shown in UI expander |
-| Movie details | TMDB API: poster, tagline, overview, cast (top 4) |
-| Charts | Genre distribution (bar) + movies per year (line) |
+Les utilisateurs web n'ont pas de `userId` dans les données d'entraînement. Pipeline en 3 étapes :
+
+### Étape 1 — Trouver les utilisateurs similaires (SQL BigQuery)
+```sql
+SELECT userId, COUNT(*) AS common_movies
+FROM `assignement_1.ratings`
+WHERE movieId IN (<films_sélectionnés>) AND rating >= 3.5
+GROUP BY userId
+ORDER BY common_movies DESC
+LIMIT 50
+```
+
+### Étape 2 — Générer les recommandations via BigQuery ML
+```sql
+SELECT movieId, AVG(predicted_rating) AS avg_pred
+FROM ML.RECOMMEND(
+  MODEL `assignement_1.movie_recommender`,
+  (SELECT userId FROM UNNEST([<top_50_users>]) AS userId)
+)
+GROUP BY movieId ORDER BY avg_pred DESC LIMIT 12
+```
+
+Modèle : `matrix_factorization`, **64 facteurs**, **20 itérations**, RMSE ≈ 0.37.
+
+### Cascade de fallback
+
+| Niveau | Méthode | Déclenchement |
+|--------|---------|---------------|
+| 1 | BigQuery ML `ML.RECOMMEND` | Toujours tenté en premier |
+| 2 | SQL collaboratif (films des users similaires) | Si BQML indisponible |
+| 3 | SQL global (top films, ≥ 50 votes) | Aucun film sélectionné ou tout échoue |
 
 ---
 
-## BigQuery Tables
+## Données
 
-```
-assignement_1.movies  — movieId, title, genres, tmdbId, language, release_year, country
-assignement_1.ratings — userId, movieId, rating, timestamp
-```
+Dataset **MovieLens ml-latest-small** chargé dans BigQuery (`assignement_1`) :
 
-**Project:** `gen-lang-client-0671890527`
+| Table | Colonnes |
+|-------|----------|
+| `movies` | movieId, title, genres, tmdbId, language, release_year, country |
+| `ratings` | userId, movieId, rating, timestamp |
+
+> `tmdbId` provient de `links.csv` et est fusionné dans `movies` à l'import (`scripts/upload_data.py`).
 
 ---
 
-## Local Development
+## Setup local
 
-### Prerequisites
-- Python 3.11+
-- Google Cloud project with BigQuery enabled
-- [TMDB API key](https://www.themoviedb.org/settings/api) (free)
-
-### Install
 ```bash
-git clone <your-repo-url>
+# 1. Cloner et configurer
+git clone https://github.com/marcelo-fg/cloud_asignement.git
 cd cloud_asignement
-pip install -r requirements.txt
+cp .env.example .env
+# Remplir .env avec vos credentials
+
+# 2. Lancer avec Docker Compose
+docker-compose up --build
+# Frontend : http://localhost:8080
+# Backend  : http://localhost:8080
 ```
 
-### Configure Secrets
-
-Create `.streamlit/secrets.toml`:
-
-```toml
-TMDB_API_KEY = "your-tmdb-api-key"
-
-[gcp_service_account]
-type = "service_account"
-project_id = "your-gcp-project-id"
-private_key_id = "..."
-private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-client_email = "...@....iam.gserviceaccount.com"
-client_id = "..."
-auth_uri = "https://accounts.google.com/o/oauth2/auth"
-token_uri = "https://oauth2.googleapis.com/token"
-auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-client_x509_cert_url = "..."
-```
-
-Or use **Application Default Credentials**:
+### Opérations one-time
 ```bash
-gcloud auth application-default login
-gcloud config set project your-project-id
-```
+# Charger les données MovieLens dans BigQuery
+python scripts/upload_data.py
 
-### Run
-```bash
-streamlit run app.py
+# Entraîner le modèle BQML
+python train_model.py
+
+# Indexer les films dans Elasticsearch
+cd backend && python index_movies.py
 ```
-Open [http://localhost:8501](http://localhost:8501)
 
 ---
 
-## Docker
-
-### Build & Run Locally
-```bash
-docker build -t moviefinder .
-docker run -p 8080:8080 \
-  -e TMDB_API_KEY="your-tmdb-key" \
-  -e GCP_SA_JSON='{"type":"service_account",...}' \
-  moviefinder
-```
-Open [http://localhost:8080](http://localhost:8080)
-
----
-
-## Cloud Run Deployment
-
-Secrets are stored in **Google Secret Manager** — no env vars with plain-text credentials needed.
-
-### First deploy (setup once)
+## Déploiement Cloud Run
 
 ```bash
-# 1. Enable Secret Manager API
-gcloud services enable secretmanager.googleapis.com --project=gen-lang-client-0671890527
-
-# 2. Create the secrets
-echo -n "YOUR_TMDB_API_KEY" | gcloud secrets create TMDB_API_KEY --data-file=- --replication-policy=automatic
-cat your-service-account.json | gcloud secrets create GCP_SERVICE_ACCOUNT --data-file=- --replication-policy=automatic
-
-# 3. Grant Cloud Run's default SA access
-PROJECT_NUMBER=$(gcloud projects describe gen-lang-client-0671890527 --format='value(projectNumber)')
-for SECRET in TMDB_API_KEY GCP_SERVICE_ACCOUNT; do
-  gcloud secrets add-iam-policy-binding $SECRET \
-    --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-    --role="roles/secretmanager.secretAccessor"
-done
-
-# 4. Deploy (secrets are injected automatically as env vars)
-gcloud run deploy moviefinder \
-  --source . \
-  --region europe-west6 \
+# Backend
+gcloud run deploy movie-backend \
+  --source ./backend \
+  --region us-central1 \
   --allow-unauthenticated \
   --port 8080 \
-  --project gen-lang-client-0671890527 \
-  --update-secrets="TMDB_API_KEY=TMDB_API_KEY:latest,GCP_SA_JSON=GCP_SERVICE_ACCOUNT:latest"
+  --update-secrets="TMDB_API_KEY=TMDB_API_KEY:latest,GCP_SA_JSON=GCP_SERVICE_ACCOUNT:latest,ES_API_KEY=ES_API_KEY:latest" \
+  --set-env-vars="GCP_PROJECT=gen-lang-client-0671890527,BQ_DATASET=assignement_1,ES_URL=<votre-es-url>"
+
+# Frontend
+gcloud run deploy movie-frontend \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --port 8080 \
+  --update-secrets="TMDB_API_KEY=TMDB_API_KEY:latest,GCP_SA_JSON=GCP_SERVICE_ACCOUNT:latest" \
+  --set-env-vars="BACKEND_URL=https://movie-backend-262418330780.us-central1.run.app"
 ```
-
-### Update secrets (rotate keys)
-
-```bash
-# Update TMDB key
-echo -n "NEW_TMDB_KEY" | gcloud secrets versions add TMDB_API_KEY --data-file=-
-
-# Update SA JSON
-cat new-service-account.json | gcloud secrets versions add GCP_SERVICE_ACCOUNT --data-file=-
-```
-
-> Secret Manager automatically injects secrets as environment variables into Cloud Run containers. No code change needed — `db.py` and `tmdb.py` read them via `os.getenv()` as before.
 
 ---
 
-
-
-## Running Tests
+## Tests
 
 ```bash
 pip install pytest
@@ -169,22 +199,6 @@ pytest tests/ -v
 
 ---
 
-## Project Structure (Refactored)
+## Auteur
 
-The project has been refactored for **modularity** and **DRY** principles:
-
-```
-cloud_asignement/
-├── app.py               ← Streamlit UI Entrypoint
-├── db.py                ← BigQuery client (Simplified)
-├── query_builder.py     ← SQL builder (Core logic)
-├── tmdb.py              ← TMDB API (Consolidated)
-├── ui/
-│   ├── components.py    ← Shared UI Primitives [NEW]
-│   ├── styles.py        ← Global CSS (Audited/Cleaned)
-│   └── ...              ← Modular Page Renderers
-├── tests/               ← Unit Tests (Expanded)
-├── requirements.txt
-├── Dockerfile
-└── Procfile             ← Heroku/Vercel support [NEW]
-```
+Marcelo Gonçalves — Cloud & Advanced Analytics 2026
