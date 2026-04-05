@@ -15,7 +15,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from es_client import autocomplete
-from recommender import get_recommendations
+from recommender import get_recommendations, enrich_with_tmdb
+from db import run_query, MOVIES_TABLE, RATINGS_TABLE
 from tmdb import fetch_movie_popularity
 
 app = Flask(__name__)
@@ -47,6 +48,7 @@ def handle_recommend():
     """Recommendation endpoint."""
     data = request.json or {}
     movie_ids           = data.get("movie_ids", [])
+    movie_ratings       = data.get("movie_ratings", None)
     genres              = data.get("genres") or None
     year_min            = data.get("year_min") or None
     year_max            = data.get("year_max") or None
@@ -57,6 +59,7 @@ def handle_recommend():
     try:
         recommendations = get_recommendations(
             liked_movie_ids    = movie_ids,
+            movie_ratings      = movie_ratings,
             genres             = genres,
             year_min           = year_min,
             year_max           = year_max,
@@ -68,6 +71,141 @@ def handle_recommend():
     except Exception as e:
         print(f"[API] Recommendation error: {e}")
         return jsonify({"error": str(e)}), 500
+
+# ── A1-style routes ──────────────────────────────────────────────────────────
+
+@app.route("/movies/search", methods=["GET"])
+def handle_search():
+    """Search movies using BigQuery SQL with filters."""
+    title      = request.args.get("title", "").strip()
+    genres     = request.args.getlist("genre")
+    language   = request.args.get("language", "")
+    year_min   = int(request.args.get("year_min", 1900))
+    year_max   = int(request.args.get("year_max", 2026))
+    rating_min = float(request.args.get("rating_min", 0.0))
+    rating_max = float(request.args.get("rating_max", 5.0))
+    limit      = min(int(request.args.get("limit", 40)), 100)
+
+    conditions = []
+    if title:
+        safe = title.replace("'", "\\'")
+        conditions.append(f"LOWER(m.title) LIKE LOWER('%{safe}%')")
+    if language and language not in ("", "All"):
+        conditions.append(f"m.language = '{language}'")
+    for g in genres:
+        conditions.append(
+            f"(m.genres LIKE '{g}|%' OR m.genres LIKE '%|{g}|%' "
+            f"OR m.genres LIKE '%|{g}' OR m.genres = '{g}')"
+        )
+    if year_min > 1900 or year_max < 2026:
+        conditions.append(f"m.release_year BETWEEN {year_min} AND {year_max}")
+
+    where         = ("WHERE " + "\n  AND ".join(conditions)) if conditions else ""
+    rating_having = ""
+    if rating_min > 0.0 or rating_max < 5.0:
+        rating_having = (
+            f"HAVING AVG(r.rating) BETWEEN {rating_min} AND {rating_max} "
+            f"AND COUNT(r.rating) >= 5"
+        )
+
+    sql = f"""
+    SELECT m.movieId, m.title, m.genres, m.language,
+           m.release_year, m.country, m.tmdbId,
+           ROUND(AVG(r.rating), 2) AS avg_rating,
+           COUNT(r.rating)         AS nb_ratings
+    FROM `{MOVIES_TABLE}` AS m
+    JOIN `{RATINGS_TABLE}` AS r
+      ON CAST(m.movieId AS STRING) = CAST(r.movieId AS STRING)
+    {where}
+    GROUP BY m.movieId, m.title, m.genres, m.language, m.release_year, m.country, m.tmdbId
+    {rating_having}
+    ORDER BY nb_ratings DESC, avg_rating DESC
+    LIMIT {limit}
+    """
+    try:
+        df      = run_query(sql)
+        results = df.to_dict("records")
+        results = enrich_with_tmdb(results[:20])
+        return jsonify(results), 200
+    except Exception as e:
+        print(f"[API] Search error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/movies/top", methods=["GET"])
+def handle_top():
+    """Top-rated movies with optional genre and decade filters."""
+    genre  = request.args.get("genre", "")
+    decade = request.args.get("decade", "")
+    limit  = min(int(request.args.get("limit", 12)), 50)
+
+    conditions = ["m.release_year IS NOT NULL", "m.release_year BETWEEN 1900 AND 2015"]
+    if genre:
+        conditions.append(
+            f"(m.genres LIKE '{genre}|%' OR m.genres LIKE '%|{genre}|%' "
+            f"OR m.genres LIKE '%|{genre}' OR m.genres = '{genre}')"
+        )
+    if decade:
+        try:
+            dec = int(decade)
+            conditions.append(f"m.release_year BETWEEN {dec} AND {dec + 9}")
+        except ValueError:
+            pass
+
+    where = "WHERE " + "\n  AND ".join(conditions)
+    sql   = f"""
+    SELECT m.movieId, m.title, m.genres, m.release_year,
+           m.language, m.country, m.tmdbId,
+           COUNT(r.rating)         AS nb_ratings,
+           ROUND(AVG(r.rating), 2) AS avg_rating
+    FROM `{MOVIES_TABLE}` AS m
+    JOIN `{RATINGS_TABLE}` AS r
+      ON CAST(m.movieId AS STRING) = CAST(r.movieId AS STRING)
+    {where}
+    GROUP BY m.movieId, m.title, m.genres, m.release_year, m.language, m.country, m.tmdbId
+    HAVING COUNT(r.rating) >= 100
+    ORDER BY avg_rating DESC, nb_ratings DESC
+    LIMIT {limit}
+    """
+    try:
+        df      = run_query(sql)
+        results = df.to_dict("records")
+        results = enrich_with_tmdb(results)
+        return jsonify(results), 200
+    except Exception as e:
+        print(f"[API] Top charts error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/movies/genres", methods=["GET"])
+def handle_genres():
+    try:
+        sql = f"""
+        SELECT DISTINCT genre FROM `{MOVIES_TABLE}`,
+        UNNEST(SPLIT(genres, '|')) AS genre
+        WHERE genres IS NOT NULL AND genres != ''
+          AND genre != '(no genres listed)'
+        ORDER BY genre
+        """
+        df = run_query(sql)
+        return jsonify(df["genre"].tolist()), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/movies/languages", methods=["GET"])
+def handle_languages():
+    try:
+        sql = f"""
+        SELECT DISTINCT language FROM `{MOVIES_TABLE}`
+        WHERE language IS NOT NULL AND language != ''
+        ORDER BY language LIMIT 60
+        """
+        df = run_query(sql)
+        return jsonify(df["language"].tolist()), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     # Use port 5001 to avoid conflict with AirPlay (port 5000) on macOS

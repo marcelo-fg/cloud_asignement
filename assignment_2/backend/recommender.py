@@ -12,6 +12,7 @@ TMDB_BASE    = "https://api.themoviedb.org/3"
 
 def get_recommendations(
     liked_movie_ids:    List[int],
+    movie_ratings:      Optional[Dict[str, float]] = None,
     genres:             Optional[List[str]] = None,
     year_min:           Optional[int]       = None,
     year_max:           Optional[int]       = None,
@@ -22,7 +23,7 @@ def get_recommendations(
     """
     Enriched recommendation engine.
 
-    Seeds  = liked_movie_ids
+    Seeds  = liked_movie_ids + movie_ratings
            + top movies of preferred genres (BigQuery)
            + movies of preferred actors/directors (TMDB → BigQuery)
 
@@ -30,6 +31,9 @@ def get_recommendations(
            → SQL collaborative fallback
            → global top-rated fallback
     """
+
+    if movie_ratings:
+        liked_movie_ids = list(set(liked_movie_ids) | set(int(k) for k in movie_ratings.keys()))
 
     # ── 1. Expand seed movie_ids from preferences ─────────────────────────────
     # Movies to exclude from output (watched films)
@@ -52,22 +56,42 @@ def get_recommendations(
     genre_filter = _genre_sql_filter(genres, table_alias="m")
     year_filter  = _year_sql_filter(year_min, year_max, table_alias="m")
 
-    # ── 3. Run BQML → SQL fallback → global fallback ──────────────────────────
+    # ── 3. Continuous Filling across Engines ──────────────────────────────────
+    final_results = []
+    current_excluded = set(excluded)
+
+    # A. GCloud IA (BQML) - The premium personalized choice
     try:
-        results = _bqml(seed_ids, excluded, genre_filter, year_filter, n)
-        if results:
-            return enrich_with_tmdb(results)
+        bqml_res = _bqml(seed_ids, movie_ratings, current_excluded, genre_filter, year_filter, n)
+        for r in bqml_res:
+            final_results.append(r)
+            current_excluded.add(r["movieId"])
     except Exception as e:
         print(f"[RECOMMENDER] BQML failed: {e}")
 
-    try:
-        results = _sql_collaborative(seed_ids, excluded, genre_filter, year_filter, n)
-        if results:
-            return enrich_with_tmdb(results)
-    except Exception as e:
-        print(f"[RECOMMENDER] SQL fallback failed: {e}")
+    # B. Collaborative Fallback (Similar Users)
+    if len(final_results) < n:
+        needed = n - len(final_results)
+        try:
+            sql_res = _sql_collaborative(seed_ids, movie_ratings, current_excluded, genre_filter, year_filter, needed)
+            for r in sql_res:
+                final_results.append(r)
+                current_excluded.add(r["movieId"])
+        except Exception as e:
+            print(f"[RECOMMENDER] SQL fallback failed: {e}")
 
-    return _global_fallback(n, genres, year_min, year_max)
+    # C. Global Fallback (Top Hits)
+    if len(final_results) < n:
+        needed = n - len(final_results)
+        try:
+            glob_res = _global_fallback(needed, genres, year_min, year_max, current_excluded)
+            for r in glob_res:
+                final_results.append(r)
+                # no need to add to excluded, we are at the end
+        except Exception as e:
+            print(f"[RECOMMENDER] Global fallback failed: {e}")
+
+    return enrich_with_tmdb(final_results[:n])
 
 
 # ── Seed expansion helpers ────────────────────────────────────────────────────
@@ -148,28 +172,47 @@ def _year_sql_filter(year_min: Optional[int], year_max: Optional[int], table_ali
         clauses.append(f"{table_alias}.release_year <= {year_max}")
     return ("AND " + " AND ".join(clauses)) if clauses else ""
 
-
 # ── Core engines ──────────────────────────────────────────────────────────────
 
 def _bqml(
     seed_ids:      List[int],
-    exclude_ids:   List[int],
+    movie_ratings: Optional[Dict[str, float]],
+    exclude_ids:   set,
     genre_filter:  str,
     year_filter:   str,
     n:             int,
 ) -> List[Dict]:
-    seed_str    = ", ".join(map(str, seed_ids))
     exclude_str = ", ".join(map(str, exclude_ids)) if exclude_ids else "NULL"
 
-    # Find users who liked our seed movies
-    similar_users_sql = f"""
-    SELECT userId, COUNT(*) as common_movies
-    FROM `{RATINGS_TABLE}`
-    WHERE movieId IN ({seed_str}) AND rating >= 3.5
-    GROUP BY userId
-    ORDER BY common_movies DESC
-    LIMIT 50
-    """
+    if movie_ratings:
+        structs = [f"STRUCT({int(m)} AS movieId, {float(r)} AS seed_rating)" for m, r in movie_ratings.items()]
+        struct_arr_str = ", ".join(structs)
+        similar_users_sql = f"""
+        WITH seed_ratings AS (
+            SELECT * FROM UNNEST([{struct_arr_str}])
+        )
+        SELECT r.userId,
+               SUM(ABS(r.rating - s.seed_rating)) as total_diff,
+               COUNT(*) as common_movies
+        FROM `{RATINGS_TABLE}` r
+        JOIN seed_ratings s ON r.movieId = s.movieId
+        GROUP BY r.userId
+        HAVING common_movies >= 2          -- require at least 2 films in common
+        ORDER BY common_movies DESC, total_diff ASC
+        LIMIT 100
+        """
+    else:
+        seed_str = ", ".join(map(str, seed_ids))
+        similar_users_sql = f"""
+        SELECT userId, COUNT(*) as common_movies
+        FROM `{RATINGS_TABLE}`
+        WHERE movieId IN ({seed_str}) AND rating >= 3.5
+        GROUP BY userId
+        HAVING common_movies >= 2
+        ORDER BY common_movies DESC
+        LIMIT 100
+        """
+        
     df_users = run_query(similar_users_sql)
     similar_users = df_users["userId"].tolist()
 
@@ -179,21 +222,40 @@ def _bqml(
     users_str = ", ".join([f"'{u}'" if isinstance(u, str) else str(u) for u in similar_users])
 
     bqml_sql = f"""
-    SELECT
-        t.movieId,
-        AVG(t.predicted_rating) as avg_pred,
-        COUNT(DISTINCT t.userId)  as user_count,
-        m.title, m.genres, m.release_year, m.tmdbId
-    FROM ML.RECOMMEND(
-        MODEL `{MODEL_NAME}`,
-        (SELECT userId FROM UNNEST([{users_str}]) as userId)
-    ) t
-    JOIN `{MOVIES_TABLE}` m ON t.movieId = m.movieId
-    WHERE t.movieId NOT IN ({exclude_str})
-    {genre_filter}
-    {year_filter}
-    GROUP BY t.movieId, m.title, m.genres, m.release_year, m.tmdbId
-    ORDER BY avg_pred DESC, user_count DESC
+    WITH global_pop AS (
+        -- Long-tail sweet spot: not too obscure, not too blockbuster
+        SELECT movieId, COUNT(*) AS global_votes, AVG(rating) AS global_avg
+        FROM `{RATINGS_TABLE}`
+        GROUP BY movieId
+        HAVING global_votes BETWEEN 250 AND 10000
+    ),
+    predictions AS (
+        SELECT
+            t.movieId,
+            LEAST(GREATEST(AVG(t.predicted_rating), 0.5), 5.0) AS avg_pred,
+            COUNT(DISTINCT t.userId)  AS user_count,
+            m.title, m.genres, m.release_year, m.tmdbId
+        FROM ML.RECOMMEND(
+            MODEL `{MODEL_NAME}`,
+            (SELECT userId FROM UNNEST([{users_str}]) AS userId)
+        ) t
+        JOIN `{MOVIES_TABLE}` m ON t.movieId = m.movieId
+        WHERE t.movieId NOT IN ({exclude_str})
+        {genre_filter}
+        {year_filter}
+        GROUP BY t.movieId, m.title, m.genres, m.release_year, m.tmdbId
+        HAVING user_count >= 8
+           AND avg_pred   >= 3.5
+    )
+    SELECT p.*, g.global_votes, g.global_avg,
+           -- Specificity: how much do mirror users love this vs. the global average?
+           (p.avg_pred - g.global_avg) AS specificity_bonus,
+           -- community_rating is the real 0–5 display rating (unlike avg_pred which is a raw inner product)
+           g.global_avg AS community_rating
+    FROM predictions p
+    JOIN global_pop g ON p.movieId = g.movieId
+    ORDER BY (p.avg_pred + GREATEST(0, p.avg_pred - g.global_avg) * 0.5) DESC,
+             p.user_count DESC
     LIMIT {n}
     """
     df = run_query(bqml_sql)
@@ -202,27 +264,63 @@ def _bqml(
 
 def _sql_collaborative(
     seed_ids:     List[int],
-    exclude_ids:  List[int],
+    movie_ratings: Optional[Dict[str, float]],
+    exclude_ids:  set,
     genre_filter: str,
     year_filter:  str,
     n:            int,
 ) -> List[Dict]:
-    seed_str    = ", ".join(map(str, seed_ids))
     exclude_str = ", ".join(map(str, exclude_ids)) if exclude_ids else "NULL"
 
-    sql = f"""
-    WITH similar_users AS (
+    if movie_ratings:
+        structs = [f"STRUCT({int(m)} AS movieId, {float(r)} AS seed_rating)" for m, r in movie_ratings.items()]
+        struct_arr_str = ", ".join(structs)
+        similar_users_sql = f"""
+        WITH seed_ratings AS (
+            SELECT * FROM UNNEST([{struct_arr_str}])
+        )
+        SELECT r.userId, 
+               SUM(ABS(r.rating - s.seed_rating)) as total_diff,
+               COUNT(*) as common_movies
+        FROM `{RATINGS_TABLE}` r
+        JOIN seed_ratings s ON r.movieId = s.movieId
+        GROUP BY r.userId
+        ORDER BY common_movies DESC, total_diff ASC
+        LIMIT 50
+        """
+    else:
+        seed_str = ", ".join(map(str, seed_ids))
+        similar_users_sql = f"""
         SELECT userId, COUNT(*) as common_movies
         FROM `{RATINGS_TABLE}`
         WHERE movieId IN ({seed_str}) AND rating >= 3.5
-        GROUP BY userId ORDER BY common_movies DESC LIMIT 50
+        GROUP BY userId
+        HAVING common_movies >= 2
+        ORDER BY common_movies DESC
+        LIMIT 100
+        """
+
+    sql = f"""
+    WITH similar_users AS (
+        {similar_users_sql}
+    ),
+    global_pop AS (
+        SELECT movieId
+        FROM `{RATINGS_TABLE}`
+        GROUP BY movieId
+        HAVING COUNT(*) BETWEEN 250 AND 10000
     ),
     candidates AS (
-        SELECT r.movieId, AVG(r.rating) as avg_rating, COUNT(DISTINCT r.userId) as user_count
+        SELECT r.movieId,
+               AVG(r.rating)          AS avg_rating,
+               COUNT(DISTINCT r.userId) AS user_count
         FROM `{RATINGS_TABLE}` r
         JOIN similar_users s ON r.userId = s.userId
-        WHERE r.movieId NOT IN ({exclude_str}) AND r.rating >= 3.5
+        JOIN global_pop g    ON r.movieId = g.movieId
+        WHERE r.movieId NOT IN ({exclude_str})
+          AND r.rating >= 3.5
         GROUP BY r.movieId
+        HAVING user_count >= 8
         ORDER BY avg_rating DESC, user_count DESC
         LIMIT {n * 3}
     )
@@ -245,21 +343,23 @@ def _global_fallback(
     genres:     Optional[List[str]] = None,
     year_min:   Optional[int]       = None,
     year_max:   Optional[int]       = None,
+    exclude_ids: Optional[set]       = None,
 ) -> List[Dict[str, Any]]:
     genre_filter = _genre_sql_filter(genres, "m")
     year_filter  = _year_sql_filter(year_min, year_max, "m")
+    exclude_str  = ", ".join(map(str, exclude_ids)) if exclude_ids else "NULL"
 
     sql = f"""
     WITH stats AS (
         SELECT movieId, AVG(rating) as avg_rating, COUNT(*) as vote_count
         FROM `{RATINGS_TABLE}`
-        GROUP BY movieId HAVING vote_count >= 50
+        GROUP BY movieId HAVING vote_count >= 200
     )
     SELECT s.movieId, s.avg_rating, s.vote_count,
            m.title, m.genres, m.release_year, m.tmdbId
     FROM stats s
     JOIN `{MOVIES_TABLE}` m ON s.movieId = m.movieId
-    WHERE 1=1
+    WHERE m.movieId NOT IN ({exclude_str})
     {genre_filter}
     {year_filter}
     ORDER BY avg_rating DESC, vote_count DESC

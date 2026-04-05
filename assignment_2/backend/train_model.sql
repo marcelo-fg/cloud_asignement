@@ -8,13 +8,19 @@ OPTIONS (
   item_col='movieId',
   rating_col='rating',
   feedback_type='explicit',
-  num_factors=16,
-  l2_reg=0.1,
-  max_iterations=15
+  -- Tuning des hyperparamètres
+  num_trials=10,
+  num_factors=HPARAM_CANDIDATES([32, 64, 128]),
+  l2_reg=HPARAM_RANGE(0.01, 10.0),
+  max_iterations=50,
+  early_stop=TRUE
 ) AS
 SELECT
   userId,
   movieId,
-  rating
+  AVG(rating) AS rating
 FROM
-  `gen-lang-client-0671890527.assignement_1.ratings`;
+  `gen-lang-client-0671890527.assignement_1.ratings`
+GROUP BY
+  userId,
+  movieId;

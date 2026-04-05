@@ -39,16 +39,16 @@ def index_movies():
     create_index(client)
 
     sql = f"SELECT movieId, title, genres, tmdbId, release_year, country, language FROM `{MOVIES_TABLE}`"
-    movies = run_query(sql)
-    
+    movies_df = run_query(sql)
+    movies = movies_df.to_dict('records')  # list of dicts
+
     actions = []
     count = 0
     batch_size = 500
-    
+
     print("[ES] Starting bulk indexing...")
-    for movie in tqdm(movies, desc="Indexing movies"):
+    for movie_dict in tqdm(movies, desc="Indexing movies"):
         # Normalize the title for better search
-        movie_dict = dict(movie)
         movie_dict["title"] = normalize_title(movie_dict["title"])
         
         action = {
