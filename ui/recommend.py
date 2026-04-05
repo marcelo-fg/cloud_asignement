@@ -124,7 +124,7 @@ def _film_search_func(searchterm: str):
     except Exception:
         return []
 
-def render(db, qb, tmdb):
+def render():
     styles.render_navbar("recommend")
     st.markdown("<div style='height: 4rem'></div>", unsafe_allow_html=True)
 

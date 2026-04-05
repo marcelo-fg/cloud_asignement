@@ -14,7 +14,7 @@
 set -euo pipefail
 
 # ── Configuration — edit these before running ─────────────────────────────────
-PROJECT_ID="${GCP_PROJECT:-gen-lang-client-0671890527}"
+PROJECT_ID="${GCP_PROJECT:?GCP_PROJECT env var is required}"
 REGION="${REGION:-europe-west6}"
 REPO="moviefinder"                    # Artifact Registry repository name
 AR_HOST="${REGION}-docker.pkg.dev"

@@ -25,8 +25,8 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-GCP_PROJECT = os.getenv("GCP_PROJECT", "gen-lang-client-0671890527")
-BQ_DATASET  = os.getenv("BQ_DATASET", "assignement_1")
+GCP_PROJECT = os.environ["GCP_PROJECT"]
+BQ_DATASET  = os.environ.get("BQ_DATASET", "assignement_1")
 
 # Course GitHub repository raw CSV URLs (ml-latest-small)
 BASE_URL = (

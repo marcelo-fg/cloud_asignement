@@ -3,9 +3,9 @@ import json
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
-# Configuration
-GCP_PROJECT = os.getenv("GCP_PROJECT", "gen-lang-client-0671890527")
-BQ_DATASET = os.getenv("BQ_DATASET", "assignement_1")
+# Configuration — fail fast if required env vars are not set
+GCP_PROJECT = os.environ["GCP_PROJECT"]
+BQ_DATASET = os.environ.get("BQ_DATASET", "assignement_1")
 MODEL_NAME = f"{GCP_PROJECT}.{BQ_DATASET}.movie_recommender"
 MOVIES_TABLE = f"{GCP_PROJECT}.{BQ_DATASET}.movies"
 RATINGS_TABLE = f"{GCP_PROJECT}.{BQ_DATASET}.ratings"

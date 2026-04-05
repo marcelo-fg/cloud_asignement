@@ -20,7 +20,7 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 
 # ── Project / dataset constants ────────────────────────────────────────────────
-GCP_PROJECT = os.getenv("GCP_PROJECT", "gen-lang-client-0671890527")
+GCP_PROJECT = os.environ["GCP_PROJECT"]
 DATASET = "assignement_1"
 MOVIES_TABLE = f"{GCP_PROJECT}.{DATASET}.movies"
 RATINGS_TABLE = f"{GCP_PROJECT}.{DATASET}.ratings"

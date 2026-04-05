@@ -1,10 +1,9 @@
 import streamlit as st
 from ui import styles
-import db
-import query_builder as qb
-import tmdb
+import pandas as pd
+import api_client as api
 
-def render(database, query_b, tmdb_api):
+def render(tmdb_api):
     movie_id = st.query_params.get("movie_id")
     
     if not movie_id:
@@ -68,8 +67,8 @@ def render(database, query_b, tmdb_api):
     tmdb_rating = details.get("vote_average", 0)
     
     try:
-        sql = query_b.build_top_by_tmdb_ids_query([int(movie_id)], limit=1)
-        df = database.run_query(sql) if sql else None
+        movies = api.get_movies_by_tmdb_ids([int(movie_id)], limit=1)
+        df = pd.DataFrame(movies) if movies else None
     except Exception:
         df = None
     

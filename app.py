@@ -2,17 +2,14 @@
 app.py – Streamlit Application Entrypoint (Netflix-style UI)
 
 Architecture:
-  Layer 1: Database (db.py) & API (tmdb.py)
-  Layer 2: SQL logic (query_builder.py)
-  Layer 3: UI renderer (ui/home.py + ui/styles.py)
+  Layer 1: Flask backend API (api_client.py) + TMDB API (tmdb.py)
+  Layer 2: UI renderer (ui/)
 """
 
 from __future__ import annotations
 
 import streamlit as st
 
-import db
-import query_builder as qb
 import tmdb
 from ui import home, styles, search, people, movie, recommend
 
@@ -30,15 +27,15 @@ styles.inject()
 page = st.query_params.get("page", "home")
 
 if page == "home":
-    home.render(db, qb, tmdb)
+    home.render(tmdb)
 elif page == "search":
-    search.render(db, qb, tmdb)
+    search.render(tmdb)
 elif page == "people":
-    people.render(db, qb, tmdb)
+    people.render(tmdb)
 elif page == "movie":
-    movie.render(db, qb, tmdb)
+    movie.render(tmdb)
 elif page == "recommend":
-    recommend.render(db, qb, tmdb)
+    recommend.render()
 else:
-    home.render(db, qb, tmdb)
+    home.render(tmdb)
 

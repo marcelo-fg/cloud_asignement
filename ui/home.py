@@ -11,7 +11,7 @@ import requests
 import streamlit as st
 import pandas as pd
 from ui import styles, components
-from db import MOVIES_TABLE
+import api_client as api
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -19,15 +19,15 @@ from db import MOVIES_TABLE
 # ─────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=600, show_spinner="Loading Cinematic UI...")
-def _fetch_home_data_v2(_db, _qb, _tmdb):
-    """Fetches all data needed for the cinematic home page."""
+def _fetch_home_data_v2(_tmdb):
+    """Fetches all data needed for the cinematic home page via backend API."""
     # ── 1. Top 10 All Time ──────────────────────────────────────────────────
-    top_sql = _qb.build_top_charts_query(limit=10)
-    df_top = _db.run_query(top_sql)
+    data_top = api.get_top_movies(limit=10)
     top_movies = []
 
-    for rank, row in enumerate(df_top.itertuples(), 1):
-        details = _tmdb.fetch_movie_details(row.tmdbId) if pd.notna(row.tmdbId) else {}
+    for rank, row in enumerate(data_top, 1):
+        tmdb_id = row.get("tmdbId")
+        details = _tmdb.fetch_movie_details(tmdb_id) if tmdb_id else {}
         poster = details.get("poster_url") or "https://via.placeholder.com/500x750/000000/38bdf8?text=No+Poster"
         backdrop = details.get("backdrop_url") or poster
         overview = details.get("overview", "Aucun résumé disponible.")
@@ -37,64 +37,65 @@ def _fetch_home_data_v2(_db, _qb, _tmdb):
 
         top_movies.append({
             "rank": rank,
-            "title": row.title,
+            "title": row.get("title"),
             "poster": poster,
             "backdrop": backdrop,
             "overview": overview,
-            "tmdbId": row.tmdbId,
-            "rating": getattr(row, "avg_rating", "N/A"),
-            "votes": getattr(row, "nb_ratings", "0"),
-            "year": getattr(row, "release_year", "")
+            "tmdbId": tmdb_id,
+            "rating": row.get("avg_rating", "N/A"),
+            "votes": row.get("nb_ratings", "0"),
+            "year": row.get("release_year", "")
         })
 
     # ── 2. Top 10 by All Genres ─────────────────────────────────────────────
     genre_data = {}
-    g_sql = _qb.build_top_movies_per_genre_query(limit=10)
-    df_g = _db.run_query(g_sql)
+    data_g = api.get_top_movies_per_genre(limit=10)
 
-    for row in df_g.itertuples():
-        g = row.genre
+    for row in data_g:
+        g = row.get("genre")
+        if not g:
+            continue
         if g not in genre_data:
-            genre_data[g] = {"movies": [], "sql": g_sql}
-        pop = _tmdb.fetch_movie_popularity(row.tmdbId) if pd.notna(row.tmdbId) else {}
+            genre_data[g] = {"movies": [], "sql": ""}
+        tmdb_id = row.get("tmdbId")
+        pop = _tmdb.fetch_movie_popularity(tmdb_id) if tmdb_id else {}
         poster = pop.get("poster_url") or "https://via.placeholder.com/500x750/000000/38bdf8?text=No+Poster"
         genre_data[g]["movies"].append({
-            "rank": row.rank_in_genre,
-            "title": row.title,
+            "rank": row.get("rank_in_genre"),
+            "title": row.get("title"),
             "poster": poster,
-            "rating": getattr(row, "avg_rating", "N/A"),
-            "votes": getattr(row, "nb_ratings", "0"),
-            "year": getattr(row, "release_year", ""),
-            "tmdbId": row.tmdbId
+            "rating": row.get("avg_rating", "N/A"),
+            "votes": row.get("nb_ratings", "0"),
+            "year": row.get("release_year", ""),
+            "tmdbId": tmdb_id
         })
 
     # ── 3. Hits by Decade ───────────────────────────────────────────────────
     decade_data = {}
-    d_sql = _qb.build_top_movies_per_decade_query(limit=20)
-    df_d = _db.run_query(d_sql)
+    data_d = api.get_top_movies_per_decade(limit=20)
 
     decade_labels = {
         1960: "60s", 1970: "70s", 1980: "80s",
         1990: "90s", 2000: "2000s", 2010: "2010s"
     }
 
-    for row in df_d.itertuples():
-        d_val = row.decade
-        label = decade_labels.get(d_val, f"{d_val}s")
+    for row in data_d:
+        d_val = row.get("decade")
+        label = decade_labels.get(d_val, f"{d_val}s") if d_val else "N/A"
         if label not in decade_data:
-            decade_data[label] = {"movies": [], "sql": d_sql}
-
-        pop = _tmdb.fetch_movie_popularity(row.tmdbId) if pd.notna(row.tmdbId) else {}
+            decade_data[label] = {"movies": [], "sql": ""}
+        tmdb_id = row.get("tmdbId")
+        pop = _tmdb.fetch_movie_popularity(tmdb_id) if tmdb_id else {}
         poster = pop.get("poster_url") or "https://via.placeholder.com/500x750/000000/38bdf8?text=No+Poster"
         decade_data[label]["movies"].append({
-            "title": row.title,
+            "title": row.get("title"),
             "poster": poster,
-            "rating": getattr(row, "avg_rating", "N/A"),
-            "year": getattr(row, "release_year", ""),
-            "tmdbId": row.tmdbId
+            "rating": row.get("avg_rating", "N/A"),
+            "year": row.get("release_year", ""),
+            "tmdbId": tmdb_id
         })
 
-    return top_movies, top_sql, genre_data, decade_data, d_sql
+    return top_movies, "", genre_data, decade_data, ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -142,22 +143,14 @@ def _search_movies_es(query: str, limit: int = 10) -> list:
     return []
 
 
-def _tmdb_ids_to_movie_ids(db, tmdb_ids: list) -> list:
-    """Convert a list of TMDB IDs to BigQuery movieIds."""
+def _tmdb_ids_to_movie_ids(tmdb_ids: list) -> list:
+    """Convert a list of TMDB IDs to BigQuery movieIds via backend API."""
     if not tmdb_ids:
         return []
     clean = [int(x) for x in tmdb_ids if x]
     if not clean:
         return []
-    ids_str = ", ".join(str(x) for x in clean)
-    try:
-        df = db.run_query(
-            f"SELECT movieId FROM `{MOVIES_TABLE}` WHERE CAST(tmdbId AS INT64) IN ({ids_str})"
-        )
-        return df["movieId"].tolist()
-    except Exception as e:
-        print(f"[HOME] tmdb→movieId conversion failed: {e}")
-        return []
+    return api.resolve_tmdb_ids_to_movie_ids(clean)
 
 
 # ── State management ──────────────────────────────────────────────────────────
@@ -463,7 +456,7 @@ def _questionnaire_dialog(tmdb):
 
 # ── Recommendation generation ─────────────────────────────────────────────────
 
-def _do_generate(db):
+def _do_generate():
     """Call the Flask /recommend endpoint and store results in session state."""
     liked_tmdb = [m["tmdb_id"] for m in st.session_state.pv_liked]
     watched_tmdb = [m["tmdb_id"] for m in st.session_state.pv_watched]
@@ -474,8 +467,8 @@ def _do_generate(db):
     # Excluded = all liked + all watched (to not repeat)
     excluded_tmdb = list(set(liked_tmdb + watched_tmdb))
 
-    liked_movie_ids    = _tmdb_ids_to_movie_ids(db, all_seed_tmdb)
-    excluded_movie_ids = _tmdb_ids_to_movie_ids(db, excluded_tmdb)
+    liked_movie_ids    = _tmdb_ids_to_movie_ids(all_seed_tmdb)
+    excluded_movie_ids = _tmdb_ids_to_movie_ids(excluded_tmdb)
     person_ids         = [p["id"] for p in st.session_state.pv_persons]
 
     genres   = st.session_state.pv_genres or None
@@ -608,7 +601,7 @@ function slideRight(btn) {{
 
 # ── Main "Pour vous" section ──────────────────────────────────────────────────
 
-def _render_pour_vous(db, tmdb):
+def _render_pour_vous(tmdb):
     _init_pv_state()
 
     state = st.session_state.pv_state
@@ -647,7 +640,7 @@ def _render_pour_vous(db, tmdb):
     # ── Pending (generating) ──────────────────────────────────────────────────
     elif state == "pending":
         with st.spinner("Génération en cours..."):
-            _do_generate(db)
+            _do_generate()
         st.rerun()
 
     # ── Results ───────────────────────────────────────────────────────────────
@@ -681,8 +674,8 @@ function hideSql(id) {
 # Main render
 # ─────────────────────────────────────────────────────────────────────────────
 
-def render(db, qb, tmdb) -> None:
-    top_movies, top_sql, genre_data, decade_data, decade_sql = _fetch_home_data_v2(db, qb, tmdb)
+def render(tmdb) -> None:
+    top_movies, top_sql, genre_data, decade_data, decade_sql = _fetch_home_data_v2(tmdb)
 
     if not top_movies:
         st.error("No data available.")

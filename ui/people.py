@@ -1,22 +1,23 @@
 import streamlit as st
 from ui import styles, components
 import pandas as pd
+import api_client as api
 
-def render(db, qb, tmdb):
+def render(tmdb):
     artist_id = st.query_params.get("artist_id")
     
     # Shared Navigation
     styles.render_navbar("people")
     
     if artist_id:
-        _render_profile(artist_id, db, qb, tmdb)
+        _render_profile(artist_id, tmdb)
         st.stop()
     else:
-        _render_directory(db, qb, tmdb)
+        _render_directory(tmdb)
         st.stop()
 
 
-def _render_directory(db, qb, tmdb):
+def _render_directory(tmdb):
     st.markdown("<div style='height: 4rem'></div>", unsafe_allow_html=True)
     
     with st.container():
@@ -64,27 +65,24 @@ def _render_directory(db, qb, tmdb):
         st.info("Saisissez un nom d'artiste dans la barre de recherche ci-dessus.")
 
 
-def _render_profile(artist_id_str, db, qb, tmdb):
+def _render_profile(artist_id_str, tmdb):
     artist_id = int(artist_id_str)
-    
+
     st.markdown('<a href="/?page=people" target="_parent" style="color:#01b4e4; font-weight:600; text-decoration:none; margin-top:20px; display:inline-block;">← Retour à la recherche</a>', unsafe_allow_html=True)
     st.markdown("<hr style='border: 1px solid rgba(255,255,255,0.1); margin: 20px 0;'>", unsafe_allow_html=True)
 
     with st.spinner("Identification des films via TMDB et BigQuery..."):
         # 1. Fetch TMDB ids for this person
         movie_ids = tmdb.fetch_person_movie_tmdb_ids(artist_id, role="both")
-        
+
         if not movie_ids:
             st.warning("Cet artiste n'a aucun film répertorié sur TMDB.")
             return
-            
-        # 2. SQL query to get only movies present in BigQuery
+
+        # 2. Fetch only movies present in BigQuery via backend API
         limit = 60
-        sql = qb.build_top_by_tmdb_ids_query(movie_ids, limit=limit)
-        
-        df = pd.DataFrame()
-        if sql:
-            df = db.run_query(sql)
+        movies = api.get_movies_by_tmdb_ids(movie_ids, limit=limit)
+        df = pd.DataFrame(movies) if movies else pd.DataFrame()
             
     if df.empty:
         st.warning("Aucun des films de cet artiste n'est disponible dans notre base de données BigQuery.")
@@ -93,11 +91,6 @@ def _render_profile(artist_id_str, db, qb, tmdb):
     st.markdown(f"<h2 style='margin-bottom: 5px;'>Filmographie Disponible <span style='color:#01b4e4;'>({len(df)} films)</span></h2>", unsafe_allow_html=True)
     st.markdown("<p style='color:#ccc;'>Seuls les films existants dans notre base de données BigQuery sont affichés ici.</p>", unsafe_allow_html=True)
     
-    show_sql = st.toggle("Voir la requête BigQuery SQL")
-    if show_sql:
-        st.info("Requête de jointure IN exécutée :")
-        st.code(sql, language="sql")
-        
     # Render the movie grid
     enriched_movies = []
     for _, row in df.iterrows():

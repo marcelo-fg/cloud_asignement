@@ -1,12 +1,9 @@
 import streamlit as st
 from ui import styles, components
-import db
-import query_builder
-import tmdb
 import pandas as pd
 import random
 
-def render(database, qb, tmdb_api):
+def render(tmdb_api):
     # ── Nav Bar (Injected globally) ──────────────────────────────────────────
     styles.render_navbar("search")
     
@@ -14,8 +11,6 @@ def render(database, qb, tmdb_api):
     
     with st.container():
         st.markdown("<h1>Recherche de Films</h1>", unsafe_allow_html=True)
-        # SQL Toggle
-        show_sql = st.toggle("View BigQuery SQL")
         st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Horizontal Filters ───────────────────────────────────────────────────
@@ -91,24 +86,15 @@ def render(database, qb, tmdb_api):
     with col_sort:
         sort_by = st.selectbox("Trier par", ["Année de Sortie Décroissante", "Année de Sortie Croissante", "Note Décroissante", "Note Croissante"])
 
+    import api_client as api
+
     @st.cache_data(ttl=3600, show_spinner="Chargement des filtres...")
-    def get_filters(_db, _qb) -> tuple[list[str], list[str]]:
-        try:
-            genres_df = _db.run_query(_qb.build_distinct_genres_query())
-            # Exclure le tag "(no genres listed)" du dataset Brut
-            all_genres = sorted([str(g) for g in genres_df['genre'].dropna().tolist() if str(g).strip() and "(no genres listed)" not in str(g)])
-        except Exception:
-            all_genres = ["Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "History", "Horror", "Music", "Mystery", "Romance", "Science Fiction", "TV Movie", "Thriller", "War", "Western"]
-        
-        try:
-            langs_df = _db.run_query(_qb.build_distinct_languages_query())
-            all_langs = sorted([str(l) for l in langs_df['language'].dropna().tolist() if str(l).strip()])
-        except Exception:
-            all_langs = ["en", "fr", "es", "ja", "ko", "it", "de"]
-        
+    def get_filters() -> tuple[list[str], list[str]]:
+        all_genres = api.get_genres() or ["Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "History", "Horror", "Music", "Mystery", "Romance", "Science Fiction", "TV Movie", "Thriller", "War", "Western"]
+        all_langs  = api.get_languages() or ["en", "fr", "es", "ja", "ko", "it", "de"]
         return all_genres, all_langs
 
-    all_genres, all_langs = get_filters(database, qb)
+    all_genres, all_langs = get_filters()
 
     with col_genre:
         genres_sel = st.multiselect("Genres", options=all_genres, default=[])
@@ -157,7 +143,7 @@ def render(database, qb, tmdb_api):
         
         if search_btn or title_input or genres_sel or language_sel != "None Selected" or rating_min > 0.0 or rating_max < 5.0 or year_sel[0] > 1900 or year_sel[1] < 2026 or keywords_sel:
             tmdb_ids_list = None
-            
+
             combined_query = title_input
             if keywords_sel:
                 combined_query = title_input + " " + " ".join(keywords_sel) if title_input else " ".join(keywords_sel)
@@ -167,31 +153,21 @@ def render(database, qb, tmdb_api):
                 with st.spinner("Analyse sémantique TMDB en cours..."):
                     tmdb_ids_list = tmdb_api.search_advanced_concepts(combined_query, limit_pages=2)
                     if not tmdb_ids_list:
-                        # If completely empty from TMDB, we can force an empty list which yields 0 results, 
-                        # or fallback to string matching. Let's force empty to trust TMDB.
                         tmdb_ids_list = []
-                        
-            sql = qb.build_movie_search_query(
-                title="" if tmdb_ids_list is not None else title_input, # Don't use text LIKE if we have TMDB IDs
-                language=language_sel if language_sel != "None Selected" else "All",
-                genres=list(genres_sel),
-                rating_min=rating_min,
-                rating_max=rating_max,
-                year_min=year_sel[0],
-                year_max=year_sel[1],
-                limit=limit,
-                has_ratings_table=True,
-                tmdb_ids=tmdb_ids_list
-            )
-        
-            if show_sql:
-                st.info("Requête SQL générée envoyée à Google BigQuery :")
-                st.code(sql, language="sql")
-            
+
             with st.spinner("Recherche dans BigQuery via l'API..."):
-                df = db.run_query(sql)
-            
-            # Fetch routine continues below inside the tab...
+                results = api.search_movies(
+                    title="" if tmdb_ids_list is not None else title_input,
+                    language=language_sel if language_sel != "None Selected" else "All",
+                    genres=tuple(genres_sel),
+                    rating_min=rating_min,
+                    rating_max=rating_max,
+                    year_min=year_sel[0],
+                    year_max=year_sel[1],
+                    limit=limit,
+                    tmdb_ids=tuple(tmdb_ids_list) if tmdb_ids_list is not None else None,
+                )
+            df = pd.DataFrame(results)
             _render_results(df, sort_by, tmdb_api)
             
     with tab_person:
@@ -213,15 +189,16 @@ def render(database, qb, tmdb_api):
                 if selected_person_id:
                     with st.spinner("Récupération de la filmographie..."):
                         person_movie_ids = tmdb_api.fetch_person_movie_tmdb_ids(selected_person_id, role="both")
-                        
+
                     if person_movie_ids:
-                        sql = qb.build_movie_search_query(
-                            title="", language=language_sel if language_sel != "None Selected" else "All",
-                            genres=list(genres_sel), rating_min=rating_min, rating_max=rating_max,
-                            year_min=year_sel[0], year_max=year_sel[1], limit=limit_person, has_ratings_table=True,
-                            tmdb_ids=person_movie_ids
-                        )
-                        df = db.run_query(sql)
+                        with st.spinner("Recherche dans BigQuery via l'API..."):
+                            results = api.search_movies(
+                                title="", language=language_sel if language_sel != "None Selected" else "All",
+                                genres=tuple(genres_sel), rating_min=rating_min, rating_max=rating_max,
+                                year_min=year_sel[0], year_max=year_sel[1], limit=limit_person,
+                                tmdb_ids=tuple(person_movie_ids),
+                            )
+                        df = pd.DataFrame(results)
                         _render_results(df, sort_by, tmdb_api)
                     else:
                         st.info("Cet artiste n'a aucun film répertorié sur TMDB.")
@@ -245,15 +222,16 @@ def render(database, qb, tmdb_api):
                 if selected_collection_id:
                     with st.spinner("Récupération des films de la saga..."):
                         collection_movie_ids, c_name, c_poster = tmdb_api.fetch_collection_tmdb_ids(selected_collection_id)
-                        
+
                     if collection_movie_ids:
-                        sql = qb.build_movie_search_query(
-                            title="", language=language_sel if language_sel != "None Selected" else "All",
-                            genres=list(genres_sel), rating_min=rating_min, rating_max=rating_max,
-                            year_min=year_sel[0], year_max=year_sel[1], limit=limit_saga, has_ratings_table=True,
-                            tmdb_ids=collection_movie_ids
-                        )
-                        df = db.run_query(sql)
+                        with st.spinner("Recherche dans BigQuery via l'API..."):
+                            results = api.search_movies(
+                                title="", language=language_sel if language_sel != "None Selected" else "All",
+                                genres=tuple(genres_sel), rating_min=rating_min, rating_max=rating_max,
+                                year_min=year_sel[0], year_max=year_sel[1], limit=limit_saga,
+                                tmdb_ids=tuple(collection_movie_ids),
+                            )
+                        df = pd.DataFrame(results)
                         _render_results(df, sort_by, tmdb_api)
                     else:
                         st.info("Cette saga ne contient pas de films.")
