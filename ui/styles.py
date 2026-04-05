@@ -65,7 +65,6 @@ html, body, [class*="css"], .stApp {
     background: transparent !important;
     border: 1px solid rgba(255,255,255,0.12) !important;
     color: #888 !important;
-    width: auto !important;
     min-width: unset !important;
     margin-top: 0 !important;
     height: auto !important;
