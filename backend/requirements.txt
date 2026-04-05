@@ -1,0 +1,11 @@
+flask
+flask-cors
+gunicorn
+google-cloud-bigquery
+google-auth
+requests
+elasticsearch>=8.0.0
+tqdm
+pandas
+pyarrow
+python-dotenv
