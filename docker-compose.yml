@@ -14,7 +14,7 @@ services:
       - GCP_SA_JSON=${GCP_SA_JSON}
 
   frontend:
-    build: ./frontend
+    build: .
     ports:
       - "8501:8501"
     environment:

@@ -9,8 +9,8 @@ Application de recommandation de films en architecture **2-tiers** :
 
 | Service | URL |
 |---------|-----|
-| 🎬 Frontend | https://movie-frontend-262418330780.us-central1.run.app |
-| ⚙️ Backend API | https://movie-backend-262418330780.us-central1.run.app |
+| Frontend | https://moviefinder-frontend-262418330780.europe-west6.run.app |
+| Backend API | https://moviefinder-backend-262418330780.europe-west6.run.app |
 
 ---
 
@@ -18,16 +18,18 @@ Application de recommandation de films en architecture **2-tiers** :
 
 ```
 Utilisateur
- └─► Streamlit Frontend  (Cloud Run)
-          │  REST JSON
+ └─► Streamlit Frontend  (Cloud Run :8501)
+          │  REST/JSON via api_client.py
           ▼
      Flask Backend  (Cloud Run :8080)
-       ├── BigQuery ML  (matrix_factorization — recommandations personnalisées)
-       ├── Elastic Cloud (autocomplete search-as-you-type)
-       └── TMDB API      (posters + métadonnées films)
+       ├── BigQuery       (recherche, filtres, métadonnées films)
+       ├── BigQuery ML    (matrix_factorization — recommandations)
+       ├── Elastic Cloud  (autocomplete search_as_you_type)
+       └── TMDB API       (posters + métadonnées enrichies)
 ```
 
-Le frontend **ne communique jamais directement** avec BigQuery ou Elasticsearch — tout passe par l'API Flask.
+Le frontend **ne communique jamais directement** avec BigQuery ou Elasticsearch —
+tout passe par l'API Flask via `api_client.py`.
 
 ---
 
@@ -36,11 +38,14 @@ Le frontend **ne communique jamais directement** avec BigQuery ou Elasticsearch 
 | Fonctionnalité | Implémentation |
 |----------------|----------------|
 | Autocomplete | Elasticsearch `search_as_you_type` |
+| Recherche avancée | Filtres genre, langue, année, note — SQL BigQuery dynamique |
+| Top films | Films les mieux notés par genre et par décennie (window functions) |
 | Recommandations personnalisées | BigQuery ML `matrix_factorization` via utilisateurs similaires |
-| Fallback SQL collaboratif | Agrégation des films des users similaires si BQML échoue |
-| Fallback global | Top films les mieux notés (≥ 50 votes) si aucun film sélectionné |
-| Posters | TMDB API (`/movie/{tmdbId}`) |
-| Transparence SQL | Toutes les requêtes BigQuery affichées dans le terminal |
+| Fallback collaboratif | Films des users similaires si BQML indisponible |
+| Fallback global | Top films (≥ 50 votes) si aucun film sélectionné |
+| Posters & métadonnées | TMDB API (`/movie/{tmdbId}`) |
+| Annuaire artistes | Recherche acteurs/réalisateurs via TMDB |
+| Transparence | Toutes les requêtes BigQuery affichées dans le terminal backend |
 
 ---
 
@@ -48,26 +53,30 @@ Le frontend **ne communique jamais directement** avec BigQuery ou Elasticsearch 
 
 ```
 cloud_asignement/
-├── Dockerfile              ← Frontend (Streamlit) → Cloud Run
-├── app.py                  ← Entrypoint Streamlit
-├── db.py                   ← Client BigQuery (frontend)
-├── query_builder.py        ← Générateur SQL dynamique
+├── Dockerfile              ← Frontend Streamlit → Cloud Run
+├── app.py                  ← Entrypoint Streamlit (routeur de pages)
+├── api_client.py           ← Passerelle HTTP unique vers le backend Flask
 ├── tmdb.py                 ← Client TMDB API (frontend)
-├── requirements.txt        ← Dépendances frontend
-├── ui/                     ← Composants UI Streamlit
-│   ├── home.py             ← Page d'accueil (Top 10, carousels genre/décennie)
-│   ├── recommend.py        ← Page recommandations (cold-start pipeline)
-│   ├── search.py           ← Recherche avancée avec filtres
-│   ├── people.py           ← Recherche d'artistes (acteurs/réalisateurs)
+├── requirements.txt        ← Dépendances frontend (Streamlit, pandas, requests)
+├── docker-compose.yml      ← Lancement local complet
+├── deploy.sh               ← Script de déploiement Cloud Run (build + push + deploy)
+├── train_model.py          ← Entraînement du modèle BQML
+├── .env.example            ← Template variables d'environnement
+│
+├── ui/                     ← Pages et composants Streamlit
+│   ├── home.py             ← Accueil : Top 10, carousels genre/décennie, "Pour vous"
+│   ├── recommend.py        ← Recommandations personnalisées (cold-start pipeline)
+│   ├── search.py           ← Recherche avancée multi-critères
+│   ├── people.py           ← Annuaire artistes (acteurs / réalisateurs)
 │   ├── movie.py            ← Page détail film
 │   ├── components.py       ← Cards HTML réutilisables
-│   └── styles.py           ← Thème Netflix (CSS global)
+│   └── styles.py           ← Thème sombre (CSS global)
 │
 ├── backend/                ← Flask REST API → Cloud Run
 │   ├── Dockerfile
-│   ├── app.py              ← Routes (/autocomplete, /recommend, /movies/popular)
+│   ├── app.py              ← 11 routes REST (voir API Reference)
 │   ├── recommender.py      ← Moteur de recommandation (cascade 3 niveaux)
-│   ├── db.py               ← Client BigQuery (backend)
+│   ├── db.py               ← Client BigQuery backend
 │   ├── es_client.py        ← Client Elasticsearch
 │   ├── tmdb.py             ← Client TMDB API (backend)
 │   ├── index_movies.py     ← Script d'indexation Elasticsearch
@@ -75,22 +84,34 @@ cloud_asignement/
 │   ├── utils.py            ← Normalisation des titres
 │   └── requirements.txt
 │
-├── docker-compose.yml      ← Lancement local complet
-├── .env.example            ← Template variables d'environnement
-├── train_model.py          ← Script entraînement BQML
-├── deploy.sh               ← Script déploiement Cloud Run
-├── scripts/
-│   └── upload_data.py      ← Import données MovieLens → BigQuery
-└── tests/
-    ├── test_query_builder.py
-    └── test_tmdb.py
+└── scripts/
+    └── upload_data.py      ← Import données MovieLens → BigQuery
 ```
+
+---
+
+## API Reference
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| GET | `/health` | Statut du service |
+| GET | `/autocomplete?q=<query>` | Suggestions Elasticsearch |
+| POST | `/recommend` | Recommandations BigQuery ML (cold-start) |
+| GET | `/movies/search` | Recherche filtrée (titre, genre, langue, année, note) |
+| GET | `/movies/top` | Top films par note moyenne |
+| GET | `/movies/top-per-genre` | Top N films par genre (window function) |
+| GET | `/movies/top-per-decade` | Top N films par décennie (window function) |
+| GET | `/movies/genres` | Liste des genres disponibles |
+| GET | `/movies/languages` | Liste des langues disponibles |
+| POST | `/movies/by-tmdb-ids` | Films BigQuery correspondant à une liste de TMDB IDs |
+| POST | `/movies/ids-from-tmdb` | Convertit TMDB IDs → BigQuery movieIds |
 
 ---
 
 ## Méthode de recommandation — Cold-Start
 
-Les utilisateurs web n'ont pas de `userId` dans les données d'entraînement. Pipeline en 3 étapes :
+Les utilisateurs web n'ont pas de `userId` dans les données d'entraînement.
+Le pipeline résout le problème en 2 étapes :
 
 ### Étape 1 — Trouver les utilisateurs similaires (SQL BigQuery)
 ```sql
@@ -128,65 +149,87 @@ Modèle : `matrix_factorization`, **64 facteurs**, **20 itérations**, RMSE ≈ 
 
 Dataset **MovieLens ml-latest-small** chargé dans BigQuery (`assignement_1`) :
 
-| Table | Colonnes |
-|-------|----------|
-| `movies` | movieId, title, genres, tmdbId, language, release_year, country |
+| Table | Colonnes clés |
+|-------|--------------|
+| `movies` | movieId, title, genres, tmdbId, release_year |
 | `ratings` | userId, movieId, rating, timestamp |
 
-> `tmdbId` provient de `links.csv` et est fusionné dans `movies` à l'import (`scripts/upload_data.py`).
+`tmdbId` est fusionné depuis `links.csv` lors de l'import (`scripts/upload_data.py`).
+
+Modèle BQML : `assignement_1.movie_recommender`
+Indice Elasticsearch : `movies` (champ `title` en `search_as_you_type`)
 
 ---
 
 ## Setup local
 
+### Prérequis
+
+- Docker + Docker Compose
+- Un fichier `.env` rempli (copier depuis `.env.example`)
+
 ```bash
-# 1. Cloner et configurer
 git clone https://github.com/marcelo-fg/cloud_asignement.git
 cd cloud_asignement
 cp .env.example .env
-# Remplir .env avec vos credentials
+# Remplir .env avec vos credentials GCP, TMDB et Elasticsearch
+```
 
-# 2. Lancer avec Docker Compose
+### Lancement
+
+```bash
 docker-compose up --build
-# Frontend : http://localhost:8080
-# Backend  : http://localhost:8080
+# Frontend : http://localhost:8501
+# Backend  : http://localhost:5000
 ```
 
 ### Opérations one-time
+
 ```bash
-# Charger les données MovieLens dans BigQuery
+# 1. Charger les données MovieLens dans BigQuery
 python scripts/upload_data.py
 
-# Entraîner le modèle BQML
+# 2. Entraîner le modèle BQML
 python train_model.py
 
-# Indexer les films dans Elasticsearch
-cd backend && python index_movies.py
+# 3. Indexer les films dans Elasticsearch
+python backend/index_movies.py
 ```
 
 ---
 
 ## Déploiement Cloud Run
 
-```bash
-# Backend
-gcloud run deploy movie-backend \
-  --source ./backend \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --port 8080 \
-  --update-secrets="TMDB_API_KEY=TMDB_API_KEY:latest,GCP_SA_JSON=GCP_SERVICE_ACCOUNT:latest,ES_API_KEY=ES_API_KEY:latest" \
-  --set-env-vars="GCP_PROJECT=gen-lang-client-0671890527,BQ_DATASET=assignement_1,ES_URL=<votre-es-url>"
+### Variables d'environnement requises
 
-# Frontend
-gcloud run deploy movie-frontend \
-  --source . \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --port 8080 \
-  --update-secrets="TMDB_API_KEY=TMDB_API_KEY:latest,GCP_SA_JSON=GCP_SERVICE_ACCOUNT:latest" \
-  --set-env-vars="BACKEND_URL=https://movie-backend-262418330780.us-central1.run.app"
+| Variable | Description |
+|----------|-------------|
+| `GCP_PROJECT` | ID du projet GCP |
+| `BQ_DATASET` | Dataset BigQuery (défaut : `assignement_1`) |
+| `ES_URL` | URL du cluster Elasticsearch |
+
+### Secrets dans Secret Manager
+
+| Secret | Description |
+|--------|-------------|
+| `TMDB_API_KEY` | Clé API TMDB |
+| `GCP_SERVICE_ACCOUNT` | JSON de la clé de service account GCP |
+| `ES_API_KEY` | Clé API Elasticsearch |
+
+### Déploiement automatique
+
+```bash
+export GCP_PROJECT=gen-lang-client-0671890527
+export ES_URL=https://my-elasticsearch-project-cf23fb.es.us-central1.gcp.elastic.cloud:443
+bash deploy.sh
 ```
+
+Le script `deploy.sh` effectue dans l'ordre :
+1. Active les APIs GCP nécessaires
+2. Crée le dépôt Artifact Registry `moviefinder` (si absent)
+3. Build et push des images Docker backend + frontend
+4. Déploie le backend sur Cloud Run (`moviefinder-backend`)
+5. Déploie le frontend sur Cloud Run (`moviefinder-frontend`) avec l'URL du backend injectée
 
 ---
 
