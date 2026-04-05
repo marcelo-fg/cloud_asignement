@@ -14,7 +14,7 @@ import streamlit as st
 import db
 import query_builder as qb
 import tmdb
-from ui import home, styles, search, people, movie
+from ui import home, styles, search, people, movie, recommend
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -37,5 +37,8 @@ elif page == "people":
     people.render(db, qb, tmdb)
 elif page == "movie":
     movie.render(db, qb, tmdb)
+elif page == "recommend":
+    recommend.render(db, qb, tmdb)
 else:
     home.render(db, qb, tmdb)
+

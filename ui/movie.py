@@ -28,6 +28,9 @@ def render(database, query_b, tmdb_api):
     elif from_page == "people" and artist_id_ref:
         back_label = "Retour à l'artiste"
         back_url = f"/?page=people&artist_id={artist_id_ref}"
+    elif from_page == "recommend":
+        back_label = "Retour aux recommandations"
+        back_url = "/?page=recommend"
     else:
         back_label = "Retour à l'accueil"
         back_url = "/?page=home"
