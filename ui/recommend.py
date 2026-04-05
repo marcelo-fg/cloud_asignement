@@ -556,7 +556,8 @@ def render(db, qb, tmdb):
                     rating_fmt = "N/A"
 
                 card = components.build_tmdb_card(
-                    title, year, rating_fmt, poster, tmdb_id, from_page="recommend"
+                    title, year, rating_fmt, poster, tmdb_id,
+                    from_page="recommend", link_target="_parent"
                 )
                 cards_html += f'<div style="flex:0 0 auto; width:200px;">{card}</div>'
 

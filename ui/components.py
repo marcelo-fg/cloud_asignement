@@ -19,7 +19,7 @@ def format_title(title: str) -> str:
         return f"{article} {base}{year_part}"
     return title
 
-def build_tmdb_card(title: str, release_year: str | int, avg_rating_str: str | float, poster_url: str, tmdb_id: str | int, from_page: str = "", artist_id: str | int = "") -> str:
+def build_tmdb_card(title: str, release_year: str | int, avg_rating_str: str | float, poster_url: str, tmdb_id: str | int, from_page: str = "", artist_id: str | int = "", link_target: str = "_self") -> str:
     """Build a Netflix/TMDB-style movie card (HTML)."""
     title = format_title(title)
     try:
@@ -41,7 +41,7 @@ def build_tmdb_card(title: str, release_year: str | int, avg_rating_str: str | f
         url += f"&artist_id={artist_id}"
     
     return f"""
-<a href="{url}" target="_self" style="text-decoration:none; color:inherit; display:block;">
+<a href="{url}" target="{link_target}" style="text-decoration:none; color:inherit; display:block;">
     <div class="tmdb-card">
         <div class="tmdb-card-img-wrap">
             <img src="{poster_url}" alt="Poster" />

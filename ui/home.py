@@ -906,11 +906,6 @@ def render(db, qb, tmdb) -> None:
     st.components.v1.html(html_part1, height=1800, scrolling=True)
 
     # ──────────────────────────────────────────────────────────────────────────
-    # "Pour vous" – Native Streamlit (between genres & decades)
-    # ──────────────────────────────────────────────────────────────────────────
-    _render_pour_vous(db, tmdb)
-
-    # ──────────────────────────────────────────────────────────────────────────
     # IFRAME 2 : Grands succès par Décennie
     # ──────────────────────────────────────────────────────────────────────────
     html_part2 = f"""
