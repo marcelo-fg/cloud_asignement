@@ -37,7 +37,8 @@ html, body, [class*="css"], .stApp {
 [role="dialog"] .stButton {
     justify-content: center !important;
 }
-.stButton > button {
+/* ── Primary buttons (search, validate, generate) ── */
+.stButton > button[kind="primary"] {
     background-color: #01b4e4 !important; /* TMDB Blue */
     color: white !important;
     border-radius: 8px !important;
@@ -52,12 +53,12 @@ html, body, [class*="css"], .stApp {
     align-items: center !important;
     justify-content: center !important;
 }
-.stButton > button:hover {
-    background-color: #0190b8 !important; /* Darker TMDB Blue */
+.stButton > button[kind="primary"]:hover {
+    background-color: #0190b8 !important;
 }
 
-/* ── Secondary / ghost buttons (nav, profile chips) ────────────────────── */
-button[data-testid="baseButton-secondary"] {
+/* ── Secondary / ghost buttons (nav pagination, profile chips) ─────────── */
+.stButton > button[kind="secondary"] {
     background: transparent !important;
     border: 1px solid rgba(255,255,255,0.12) !important;
     color: #888 !important;
@@ -67,13 +68,14 @@ button[data-testid="baseButton-secondary"] {
     min-height: 32px !important;
     font-weight: 400 !important;
     font-size: 0.88rem !important;
+    border-radius: 6px !important;
 }
-button[data-testid="baseButton-secondary"]:hover:not(:disabled) {
+.stButton > button[kind="secondary"]:hover:not(:disabled) {
     background: rgba(255,255,255,0.06) !important;
     border-color: rgba(255,255,255,0.28) !important;
     color: #ccc !important;
 }
-button[data-testid="baseButton-secondary"]:disabled {
+.stButton > button[kind="secondary"]:disabled {
     opacity: 0.25 !important;
     cursor: default !important;
 }
