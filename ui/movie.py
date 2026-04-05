@@ -18,30 +18,37 @@ def render(database, query_b, tmdb_api):
         
     # No navigation bar on the movie page as per user request
     
-    # Render dynamic back button
+    # Render dynamic back button — uses st.query_params to stay in the same session
     from_page = st.query_params.get("from", "home")
     artist_id_ref = st.query_params.get("artist_id", "")
-    
-    if from_page == "search":
-        back_label = "Retour à la recherche"
-        back_url = "/?page=search"
-    elif from_page == "people" and artist_id_ref:
-        back_label = "Retour à l'artiste"
-        back_url = f"/?page=people&artist_id={artist_id_ref}"
-    elif from_page == "recommend":
-        back_label = "Retour aux recommandations"
-        back_url = "/?page=recommend"
-    else:
-        back_label = "Retour à l'accueil"
-        back_url = "/?page=home"
 
-    st.markdown(f"""
-        <div style="padding: 15px 0 5px 0;">
-            <a href="{back_url}" target="_parent" style="color:#fff; text-decoration:none; display:inline-flex; align-items:center; gap:8px; font-size:1.1rem; font-weight:600; padding:10px 20px; background:rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius:8px; transition:all 0.2s;">
-                &#10094; {back_label}
-            </a>
-        </div>
-    """, unsafe_allow_html=True)
+    if from_page == "search":
+        back_label = "← Retour à la recherche"
+        back_page  = "search"
+        back_extra = {}
+    elif from_page == "people" and artist_id_ref:
+        back_label = "← Retour à l'artiste"
+        back_page  = "people"
+        back_extra = {"artist_id": artist_id_ref}
+    elif from_page == "recommend":
+        back_label = "← Retour aux recommandations"
+        back_page  = "recommend"
+        back_extra = {}
+    else:
+        back_label = "← Retour à l'accueil"
+        back_page  = "home"
+        back_extra = {}
+
+    st.markdown("<div style='padding: 15px 0 5px 0;'>", unsafe_allow_html=True)
+    if st.button(back_label, key="back_btn"):
+        st.query_params["page"] = back_page
+        for k, v in back_extra.items():
+            st.query_params[k] = v
+        # Clear movie_id and from params
+        st.query_params.pop("movie_id", None)
+        st.query_params.pop("from", None)
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
         
     if not details:
         st.error("Impossible de récupérer les détails de ce film via TMDB.")

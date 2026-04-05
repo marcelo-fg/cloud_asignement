@@ -537,43 +537,40 @@ def render(db, qb, tmdb):
                 unsafe_allow_html=True,
             )
 
-            cards_html = ""
-            for m in recs:
+            # Display results as a 4-column grid.
+            # Navigation via st.query_params (same Streamlit session → recs_result preserved).
+            rec_cols = st.columns(4, gap="medium")
+            for idx, m in enumerate(recs):
                 title    = m.get("title", "Unknown")
                 year     = str(m.get("release_year", ""))
                 poster   = m.get("poster_url") or "https://via.placeholder.com/500x750/111/444?text=N/A"
-                tmdb_id  = m.get("tmdbId", "")
+                tmdb_id  = str(m.get("tmdbId", ""))
 
-                # Rating display priority:
-                # 1. community_rating = real avg from global ratings table (0-5, always correct)
-                # 2. avg_rating       = SQL collaborative avg (0-5, correct)
-                # 3. Never use avg_pred — it's a raw inner product from ML.RECOMMEND (can be 40+)
                 score_val = m.get("community_rating") or m.get("avg_rating") or 0
                 try:
-                    sf = float(score_val)
-                    rating_fmt = f"{sf:.1f}"
+                    rating_fmt = f"{float(score_val):.1f}"
                 except (ValueError, TypeError):
                     rating_fmt = "N/A"
 
-                card = components.build_tmdb_card(
-                    title, year, rating_fmt, poster, tmdb_id,
-                    from_page="recommend"
-                )
-                cards_html += f'<div style="flex:0 0 auto; width:200px;">{card}</div>'
+                with rec_cols[idx % 4]:
+                    st.markdown(
+                        f"""<div style="border-radius:8px; overflow:hidden; margin-bottom:6px;">
+                            <img src="{poster}" style="width:100%; display:block;" />
+                        </div>
+                        <p style="margin:2px 0; font-size:0.82rem; font-weight:600;
+                                  color:#e8e8e8; white-space:nowrap; overflow:hidden;
+                                  text-overflow:ellipsis;">{comp.format_title(title)}</p>
+                        <p style="margin:0 0 8px 0; font-size:0.75rem; color:#888;">
+                            {year} &nbsp;·&nbsp; ★ {rating_fmt}</p>""",
+                        unsafe_allow_html=True,
+                    )
+                    if st.button("Voir le film", key=f"goto_rec_{idx}_{tmdb_id}",
+                                 use_container_width=True):
+                        st.query_params["page"]     = "movie"
+                        st.query_params["movie_id"] = tmdb_id
+                        st.query_params["from"]     = "recommend"
+                        st.rerun()
 
-            # Use st.markdown (not iframe) so links navigate the full page
-            st.markdown(f"""
-            <div style="
-                display:flex;
-                gap:15px;
-                overflow-x:auto;
-                padding-bottom:12px;
-                scroll-behavior:smooth;
-                -webkit-overflow-scrolling:touch;
-            ">
-                {cards_html}
-            </div>
-            """, unsafe_allow_html=True)
             st.markdown(SPACER(40), unsafe_allow_html=True)
 
         elif st.session_state.recs_result is not None and len(st.session_state.recs_result) == 0:
