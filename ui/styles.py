@@ -56,6 +56,28 @@ html, body, [class*="css"], .stApp {
     background-color: #0190b8 !important; /* Darker TMDB Blue */
 }
 
+/* ── Secondary / ghost buttons (nav, profile chips) ────────────────────── */
+button[data-testid="baseButton-secondary"] {
+    background: transparent !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    color: #888 !important;
+    min-width: unset !important;
+    margin-top: 0 !important;
+    height: auto !important;
+    min-height: 32px !important;
+    font-weight: 400 !important;
+    font-size: 0.88rem !important;
+}
+button[data-testid="baseButton-secondary"]:hover:not(:disabled) {
+    background: rgba(255,255,255,0.06) !important;
+    border-color: rgba(255,255,255,0.28) !important;
+    color: #ccc !important;
+}
+button[data-testid="baseButton-secondary"]:disabled {
+    opacity: 0.25 !important;
+    cursor: default !important;
+}
+
 /* ── Text Input Styling (to match button height) ─────────────────────────── */
 div[data-testid="stTextInput"] input {
     height: 45px !important;

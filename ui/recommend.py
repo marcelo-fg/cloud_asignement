@@ -247,19 +247,19 @@ def render(db, qb, tmdb):
 
             # Pagination controls
             st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-            nav_cols = st.columns([1, 3, 1])
+            nav_cols = st.columns([1, 8, 1])
             with nav_cols[0]:
-                if st.button("◀ Précédent", disabled=(page == 0), use_container_width=True, key="popular_prev"):
+                if st.button("‹", disabled=(page == 0), use_container_width=True, key="popular_prev"):
                     st.session_state.popular_page -= 1
                     st.rerun()
             with nav_cols[1]:
                 st.markdown(
-                    f"<p style='text-align:center; color:#555; font-size:0.8rem; margin:8px 0;'>"
+                    f"<p style='text-align:center; color:#555; font-size:0.82rem; margin:6px 0;'>"
                     f"{page + 1} / {total_pages}</p>",
                     unsafe_allow_html=True,
                 )
             with nav_cols[2]:
-                if st.button("Suivant ▶", disabled=(page >= total_pages - 1), use_container_width=True, key="popular_next"):
+                if st.button("›", disabled=(page >= total_pages - 1), use_container_width=True, key="popular_next"):
                     st.session_state.popular_page += 1
                     st.rerun()
 
