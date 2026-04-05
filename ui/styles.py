@@ -74,7 +74,16 @@ html, body, [class*="css"], .stApp {
     border-radius: 6px !important;
     padding: 4px 10px !important;
 }
-/* ‹/› full-width nav button: align › to the right edge */
+/* ‹ first column: align text to the left */
+div[data-testid="column"]:first-child .stButton > button[kind="secondary"] {
+    border-color: transparent !important;
+    text-align: left !important;
+}
+div[data-testid="column"]:first-child .stButton > button[kind="secondary"] * {
+    text-align: left !important;
+    justify-content: flex-start !important;
+}
+/* › last column: align text to the right */
 div[data-testid="column"]:last-child .stButton > button[kind="secondary"] {
     border-color: transparent !important;
     text-align: right !important;

@@ -249,7 +249,8 @@ def render(db, qb, tmdb):
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
             nav_cols = st.columns([1, 2, 1], gap="medium")
             with nav_cols[0]:
-                if st.button("‹", disabled=(page == 0), key="popular_prev"):
+                if st.button("‹", disabled=(page == 0),
+                             use_container_width=True, key="popular_prev"):
                     st.session_state.popular_page -= 1
                     st.rerun()
             with nav_cols[1]:
