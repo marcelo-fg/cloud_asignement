@@ -58,10 +58,14 @@ html, body, [class*="css"], .stApp {
 }
 
 /* ── Secondary / ghost buttons (nav pagination, profile chips) ─────────── */
+.stButton:has(button[kind="secondary"]) {
+    justify-content: flex-start !important;
+}
 .stButton > button[kind="secondary"] {
     background: transparent !important;
     border: 1px solid rgba(255,255,255,0.12) !important;
     color: #888 !important;
+    width: auto !important;
     min-width: unset !important;
     margin-top: 0 !important;
     height: auto !important;
@@ -69,6 +73,16 @@ html, body, [class*="css"], .stApp {
     font-weight: 400 !important;
     font-size: 0.88rem !important;
     border-radius: 6px !important;
+    padding: 4px 10px !important;
+}
+/* ‹/› full-width nav button: align › to the right edge */
+div[data-testid="column"]:last-child .stButton > button[kind="secondary"] {
+    border-color: transparent !important;
+    text-align: right !important;
+}
+div[data-testid="column"]:last-child .stButton > button[kind="secondary"] * {
+    text-align: right !important;
+    justify-content: flex-end !important;
 }
 .stButton > button[kind="secondary"]:hover:not(:disabled) {
     background: rgba(255,255,255,0.06) !important;
