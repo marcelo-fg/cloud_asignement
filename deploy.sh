@@ -57,7 +57,7 @@ docker push "${BACKEND_IMAGE}"
 
 # ── Step 4: Build and push frontend ──────────────────────────────────────────
 echo "==> Building frontend Docker image..."
-docker build --platform linux/amd64 -t "${FRONTEND_IMAGE}" ./frontend
+docker build --platform linux/amd64 -t "${FRONTEND_IMAGE}" .
 
 echo "==> Pushing frontend image to Artifact Registry..."
 docker push "${FRONTEND_IMAGE}"
