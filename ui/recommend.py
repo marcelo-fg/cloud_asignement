@@ -245,9 +245,9 @@ def render(db, qb, tmdb):
                         label_visibility="collapsed",
                     )
 
-            # Pagination controls — same 4-col grid as films so buttons align with poster edges
+            # Pagination: [1,2,1] → ‹ left | 1/4 centered | › right-edge of last poster
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            nav_cols = st.columns(4, gap="medium")
+            nav_cols = st.columns([1, 2, 1], gap="medium")
             with nav_cols[0]:
                 if st.button("‹", disabled=(page == 0), key="popular_prev"):
                     st.session_state.popular_page -= 1
@@ -258,7 +258,7 @@ def render(db, qb, tmdb):
                     f"{page + 1} / {total_pages}</p>",
                     unsafe_allow_html=True,
                 )
-            with nav_cols[3]:
+            with nav_cols[2]:
                 if st.button("›", disabled=(page >= total_pages - 1),
                              use_container_width=True, key="popular_next"):
                     st.session_state.popular_page += 1
