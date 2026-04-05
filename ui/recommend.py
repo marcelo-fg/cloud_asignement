@@ -587,6 +587,17 @@ function slideRight(btn) {{
   const c = btn.parentElement.querySelector('.posters-container');
   c.scrollBy({{ left: c.clientWidth * 0.8, behavior: 'smooth' }});
 }}
+// Navigate parent window for relative links (srcdoc iframe fix)
+document.addEventListener('click', function(e) {{
+  var link = e.target.closest('a');
+  if (link) {{
+    var path = link.getAttribute('href');
+    if (path && path.startsWith('/')) {{
+      e.preventDefault();
+      window.parent.location.href = window.parent.location.origin + path;
+    }}
+  }}
+}});
 </script>
 </body>
 </html>"""
