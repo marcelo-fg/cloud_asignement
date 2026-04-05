@@ -557,51 +557,23 @@ def render(db, qb, tmdb):
 
                 card = components.build_tmdb_card(
                     title, year, rating_fmt, poster, tmdb_id,
-                    from_page="recommend", link_target="_parent"
+                    from_page="recommend"
                 )
                 cards_html += f'<div style="flex:0 0 auto; width:200px;">{card}</div>'
 
-            carousel_html = f"""<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  {styles.get_css()}
-  <style>
-    body {{ background: transparent; margin: 0; padding: 0; overflow-x: hidden; }}
-  </style>
-</head>
-<body>
-<div class="carousel-wrapper">
-  <button class="scroll-btn left" onclick="slideLeft(this)">&#10094;</button>
-  <div class="posters-container">
-    {cards_html}
-  </div>
-  <button class="scroll-btn right" onclick="slideRight(this)">&#10095;</button>
-</div>
-<script>
-function slideLeft(btn) {{
-  const c = btn.parentElement.querySelector('.posters-container');
-  c.scrollBy({{ left: -c.clientWidth * 0.8, behavior: 'smooth' }});
-}}
-function slideRight(btn) {{
-  const c = btn.parentElement.querySelector('.posters-container');
-  c.scrollBy({{ left: c.clientWidth * 0.8, behavior: 'smooth' }});
-}}
-// Navigate parent window for relative links (srcdoc iframe fix)
-document.addEventListener('click', function(e) {{
-  var link = e.target.closest('a');
-  if (link) {{
-    var path = link.getAttribute('href');
-    if (path && path.startsWith('/')) {{
-      e.preventDefault();
-      window.parent.location.href = window.parent.location.origin + path;
-    }}
-  }}
-}});
-</script>
-</body>
-</html>"""
-            st.components.v1.html(carousel_html, height=420, scrolling=False)
+            # Use st.markdown (not iframe) so links navigate the full page
+            st.markdown(f"""
+            <div style="
+                display:flex;
+                gap:15px;
+                overflow-x:auto;
+                padding-bottom:12px;
+                scroll-behavior:smooth;
+                -webkit-overflow-scrolling:touch;
+            ">
+                {cards_html}
+            </div>
+            """, unsafe_allow_html=True)
             st.markdown(SPACER(40), unsafe_allow_html=True)
 
         elif st.session_state.recs_result is not None and len(st.session_state.recs_result) == 0:
